@@ -1305,8 +1305,9 @@ export default function FutsalTracker() {
   const [showMatchClose, setShowMatchClose] = useState(false);
   const [matchLocked, setMatchLocked] = useState(s?.matchLocked ?? false);
 
-  const [running, setRunning] = useState(false); // never auto-resume running clock
+  const [running, setRunning] = useState(false);
   const [secs, setSecs] = useState(s?.secs ?? DEFAULT_HALF_SECS);
+  const [halfDuration, setHalfDuration] = useState(s?.halfDuration ?? DEFAULT_HALF_SECS);
   const [showEditClock, setShowEditClock] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfMsg, setPdfMsg] = useState("");
@@ -1341,14 +1342,16 @@ export default function FutsalTracker() {
   secsRef.current = secs;
   const halfRef = useRef(half);
   halfRef.current = half;
+  const halfDurationRef = useRef(halfDuration);
+  halfDurationRef.current = halfDuration;
 
   // Auto-save to localStorage on every relevant change
   useEffect(() => {
     saveMatchToStorage({
-      secs, half, homeTeam, awayTeam, homePlayers, awayPlayers,
+      secs, half, halfDuration, homeTeam, awayTeam, homePlayers, awayPlayers,
       homeGoals, awayGoals, homeCards, awayCards, homeFouls, awayFouls, matchLocked,
     });
-  }, [secs, half, homeTeam, awayTeam, homePlayers, awayPlayers,
+  }, [secs, half, halfDuration, homeTeam, awayTeam, homePlayers, awayPlayers,
       homeGoals, awayGoals, homeCards, awayCards, homeFouls, awayFouls, matchLocked]);
 
   // Hide "restored" message after a few seconds
@@ -1375,17 +1378,16 @@ export default function FutsalTracker() {
   }, [running]);
 
   const toggleTimer = () => { if (secs > 0) setRunning((r) => !r); };
-  const resetTimer = () => { setRunning(false); setSecs(DEFAULT_HALF_SECS); };
+  const resetTimer = () => { setRunning(false); setSecs(halfDuration); };
 
 
   // Goal recording
   const recordGoal = useCallback((side, player) => {
-    const elapsed = DEFAULT_HALF_SECS - secsRef.current;
+    const elapsed = halfDurationRef.current - secsRef.current;
     const minuteInHalf = Math.ceil(elapsed / 60) || 1;
-    // Kumulativni minut: u 2. poluvremenu dodajemo trajanje 1. poluvremena
     const cumulativeMin = halfRef.current === 1
       ? minuteInHalf
-      : Math.floor(DEFAULT_HALF_SECS / 60) + minuteInHalf;
+      : Math.floor(halfDurationRef.current / 60) + minuteInHalf;
     const entry = {
       playerId: player.id,
       snapNum: player.num,
@@ -1401,11 +1403,11 @@ export default function FutsalTracker() {
 
   // Card recording — auto red if 2nd yellow
   const recordCard = useCallback((side, player, type) => {
-    const elapsed = DEFAULT_HALF_SECS - secsRef.current;
+    const elapsed = halfDurationRef.current - secsRef.current;
     const minuteInHalf = Math.ceil(elapsed / 60) || 1;
     const cumulativeMin = halfRef.current === 1
       ? minuteInHalf
-      : Math.floor(DEFAULT_HALF_SECS / 60) + minuteInHalf;
+      : Math.floor(halfDurationRef.current / 60) + minuteInHalf;
 
     const existingCards = side === "home" ? homeCards : awayCards;
     const playerYellows = existingCards.filter(
@@ -1502,6 +1504,7 @@ export default function FutsalTracker() {
   const handleNewMatch = () => {
     setRunning(false);
     setSecs(DEFAULT_HALF_SECS);
+    setHalfDuration(DEFAULT_HALF_SECS);
     setHomeTeam("");
     setAwayTeam("");
     setHomePlayers(initRoster(ROSTER_SIZE));
@@ -1750,7 +1753,7 @@ export default function FutsalTracker() {
               onClick={() => {
                 if (half === 1) {
                   setRunning(false);
-                  setSecs(DEFAULT_HALF_SECS);
+                  setSecs(halfDuration);
                   setHalf(2);
                 }
               }}
@@ -1956,7 +1959,7 @@ export default function FutsalTracker() {
       {showEditClock && (
         <EditClockModal
           currentSecs={secs}
-          onSave={(newSecs) => { setSecs(newSecs); setShowEditClock(false); }}
+          onSave={(newSecs) => { setSecs(newSecs); setHalfDuration(newSecs); setShowEditClock(false); }}
           onClose={() => setShowEditClock(false)}
         />
       )}
