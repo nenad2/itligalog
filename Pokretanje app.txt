@@ -1,0 +1,12 @@
+U terminalu, unutar futsal-tracker foldera:
+
+bash
+npm run dev
+
+Zatim otvori browser na http://localhost:5173
+
+Ako si zatvorio terminal i ne znaš gde je folder:
+
+bash
+cd Desktop/futsal-tracker
+npm run dev
