@@ -99,10 +99,10 @@ async function parseWorkbook(base64OrFile) {
     const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
     const players = rows
       .map((row) => ({
-        num: row[0] !== undefined ? String(row[0]).trim() : "",
-        name: row[1] !== undefined ? String(row[1]).trim() : "",
+        num: "",
+        name: row[0] !== undefined ? String(row[0]).trim() : "",
       }))
-      .filter((p) => p.num !== "" || p.name !== "")
+      .filter((p) => p.name !== "")
       .map((p) => ({ id: crypto.randomUUID(), num: p.num, name: p.name }));
     if (players.length > 0) teams[sheetName] = players;
   }
@@ -640,10 +640,10 @@ function TeamSelector({ side, teams, selectedTeam, onSelectTeam, onLigaUpload, l
         const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
         const players = rows
           .map((row) => ({
-            num: row[0] !== undefined ? String(row[0]).trim() : "",
-            name: row[1] !== undefined ? String(row[1]).trim() : "",
+            num: "",
+            name: row[0] !== undefined ? String(row[0]).trim() : "",
           }))
-          .filter((p) => p.num !== "" || p.name !== "")
+          .filter((p) => p.name !== "")
           .map((p) => ({ id: crypto.randomUUID(), num: p.num, name: p.name }));
         if (players.length > 0) parsedTeams[sheetName] = players;
       }
