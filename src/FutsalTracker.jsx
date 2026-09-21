@@ -515,7 +515,7 @@ function FoulControls({ fouls, onChange, align = "left" }) {
 }
 
 // ── Excel roster import handler ───────────────────────────────────────────────
-// Reads first column = squad number, second column = player name. No header row.
+// Reads first column = player name only. No header row.
 async function importRosterFromExcel(file) {
   const XLSX = await getXLSX();
   const data = await file.arrayBuffer();
@@ -525,12 +525,11 @@ async function importRosterFromExcel(file) {
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
 
   const players = rows
-    .map((row) => {
-      const num = row[0] !== undefined && row[0] !== null ? String(row[0]).trim() : "";
-      const name = row[1] !== undefined && row[1] !== null ? String(row[1]).trim() : "";
-      return { num, name };
-    })
-    .filter((p) => p.num !== "" || p.name !== "")
+    .map((row) => ({
+      num: "",
+      name: row[0] !== undefined && row[0] !== null ? String(row[0]).trim() : "",
+    }))
+    .filter((p) => p.name !== "")
     .map((p) => ({ id: crypto.randomUUID(), num: p.num, name: p.name }));
 
   if (players.length === 0) {
