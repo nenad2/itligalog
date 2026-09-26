@@ -5,15 +5,14 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 
-// ── jsPDF dynamic loader ──────────────────────────────────────────────────────
-async function getJsPDF() {
-  if (window.jspdf?.jsPDF) return window.jspdf.jsPDF;
+// ── html2pdf loader ───────────────────────────────────────────────────────────
+async function loadHtml2pdf() {
+  if (window.html2pdf) return window.html2pdf;
   return new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src =
-      "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
-    script.onload = () => resolve(window.jspdf.jsPDF);
-    script.onerror = () => reject(new Error("Failed to load jsPDF"));
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
+    script.onload = () => resolve(window.html2pdf);
+    script.onerror = reject;
     document.head.appendChild(script);
   });
 }
@@ -129,7 +128,7 @@ const ROSTER_SIZE = 15;
 const HALF_LABELS = ["1. Poluvreme", "2. Poluvreme"];
 const pad2 = (n) => String(Math.max(0, n)).padStart(2, "0");
 const secsToDisplay = (s) => `${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`;
-const makePlayer = () => ({ id: crypto.randomUUID(), num: "", name: "" });
+const makePlayer = () => ({ id: crypto.randomUUID(), num: "", name: "", played: false });
 const initRoster = (count = ROSTER_SIZE) => Array.from({ length: count }, makePlayer);
 
 // ── Foul dots ─────────────────────────────────────────────────────────────────
@@ -187,20 +186,31 @@ function PlayerRow({ player, goals, cards, onUpdate, onGoal, onCard }) {
   const playerCards = cards.filter((c) => c.playerId === player.id);
   const yellowCount = playerCards.filter((c) => c.type === "yellow").length;
   const hasRed = playerCards.some((c) => c.type === "red");
-  const isSuspended = hasRed; // suspended if red card
+  const isSuspended = hasRed;
 
   return (
     <div
-      className={`flex items-center gap-1.5 py-2 border-b border-gray-800/60 transition-colors ${
-        hasRed
-          ? "bg-red-950/30"
-          : yellowCount >= 1
-          ? "bg-yellow-950/20"
-          : playerGoalCount > 0
-          ? "bg-green-950/20"
-          : ""
+      className={`flex items-center gap-1.5 py-2 border-b border-gray-800/60 transition-all ${
+        hasRed ? "bg-red-950/30"
+        : yellowCount >= 1 ? "bg-yellow-950/20"
+        : playerGoalCount > 0 ? "bg-green-950/20"
+        : !player.played ? "opacity-40"
+        : ""
       }`}
     >
+      {/* Checkbox — igrao/nije igrao */}
+      <button
+        onClick={() => onUpdate({ ...player, played: !player.played })}
+        title={player.played ? "Igrao — klikni da ukloniš" : "Nije igrao — klikni da označiš"}
+        className={`shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-all active:scale-90 ${
+          player.played
+            ? "bg-emerald-500 border-emerald-400 text-white"
+            : "bg-transparent border-gray-600 hover:border-gray-400"
+        }`}
+      >
+        {player.played && <span className="text-[10px] font-black leading-none">✓</span>}
+      </button>
+
       {/* Squad number */}
       <input
         type="text"
@@ -744,6 +754,8 @@ function TeamPanel({
   ligaTeams, onLigaUpload, ligaLoaded, selectedTeam, onSelectTeam,
 }) {
   const isLeft = side === "home";
+  const playedPlayers = players.filter((p) => p.played && (p.num || p.name));
+  const activePlayers = players.filter((p) => p.num || p.name);
 
   return (
     <div className="flex flex-col gap-3 h-full">
@@ -785,7 +797,14 @@ function TeamPanel({
       {/* Roster */}
       <div className="flex-1 overflow-y-auto">
         <div className={`flex items-center justify-between mb-1 ${isLeft ? "" : "flex-row-reverse"}`}>
-          <p className="text-[10px] uppercase tracking-[0.15em] text-gray-500">Roster</p>
+          <p className="text-[10px] uppercase tracking-[0.15em] text-gray-500">
+            Roster
+            {playedPlayers.length > 0 && (
+              <span className="ml-2 text-emerald-400 font-bold">
+                {playedPlayers.length}/{activePlayers.length} igrali
+              </span>
+            )}
+          </p>
           <div className={`flex items-center gap-2 text-[10px] text-gray-600 ${isLeft ? "" : "flex-row-reverse"}`}>
             <span className="flex items-center gap-1">
               <span className="inline-block w-2.5 h-3 rounded-sm bg-yellow-400" /> Yellow
@@ -809,6 +828,8 @@ function TeamPanel({
           ))}
         </div>
       </div>
+
+      {/* Igrač utakmice — MVP se bira centralno, ovde samo prikazujemo broj */}
 
       {/* Goal log */}
       {goals.length > 0 && (
@@ -966,197 +987,147 @@ function MatchTimeline({ homeGoals, awayGoals, homeCards, awayCards,
 
 // ── PDF Generator ─────────────────────────────────────────────────────────────
 async function generatePDF({ homeTeam, awayTeam, homePlayers, awayPlayers,
-  homeGoals, awayGoals, homeCards, awayCards, homeFouls, awayFouls }) {
-  const JsPDF = await getJsPDF();
-  const doc = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  const W = doc.internal.pageSize.getWidth();
-  const H = doc.internal.pageSize.getHeight();
+  homeGoals, awayGoals, homeCards, awayCards, homeFouls, awayFouls, matchMvp }) {
+  const html2pdf = await loadHtml2pdf();
   const now = new Date();
-  const dateStr = now.toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-  const timeStr = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const dateStr = now.toLocaleDateString("sr-Latn", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  const timeStr = now.toLocaleTimeString("sr-Latn", { hour: "2-digit", minute: "2-digit" });
 
-  doc.setFillColor(10, 15, 30);
-  doc.rect(0, 0, W, H, "F");
-
-  // Header
-  doc.setFillColor(20, 28, 50);
-  doc.rect(0, 0, W, 28, "F");
-  doc.setDrawColor(234, 179, 8);
-  doc.setLineWidth(0.5);
-  doc.line(0, 28, W, 28);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
-  doc.setTextColor(234, 179, 8);
-  doc.text("IT LIGA++ MATCH REPORT", W / 2, 11, { align: "center" });
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(156, 163, 175);
-  doc.text(`${dateStr}  ·  ${timeStr}`, W / 2, 19, { align: "center" });
-  doc.text("Generated by IT LIGA++ NIŠ", W / 2, 24, { align: "center" });
-
-  // Score block
-  doc.setFillColor(15, 23, 42);
-  doc.roundedRect(15, 34, W - 30, 34, 3, 3, "F");
-  doc.setDrawColor(55, 65, 81);
-  doc.setLineWidth(0.4);
-  doc.roundedRect(15, 34, W - 30, 34, 3, 3, "S");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.setTextColor(200, 200, 200);
-  doc.text(homeTeam.toUpperCase(), W / 2 - 28, 43, { align: "right" });
-  doc.text(awayTeam.toUpperCase(), W / 2 + 28, 43, { align: "left" });
-  doc.setFontSize(30);
-  doc.setTextColor(255, 255, 255);
-  doc.text(String(homeGoals.length), W / 2 - 14, 60, { align: "center" });
-  doc.text(String(awayGoals.length), W / 2 + 14, 60, { align: "center" });
-  doc.setFontSize(20);
-  doc.setTextColor(100, 116, 139);
-  doc.text("–", W / 2, 60, { align: "center" });
-  doc.setFontSize(7);
-  doc.setTextColor(107, 114, 128);
-  doc.text(`Fouls: ${homeFouls}/5`, W / 2 - 28, 64, { align: "right" });
-  doc.text(`Fouls: ${awayFouls}/5`, W / 2 + 28, 64, { align: "left" });
-
-  doc.setDrawColor(55, 65, 81);
-  doc.setLineWidth(0.3);
-  doc.line(15, 76, W - 15, 76);
-
-  let y = 82;
-  const colLeft = 15;
-  const colRight = W / 2 + 4;
-  const colW = W / 2 - 20;
-
-  const renderTeamSection = (startX, teamName, players, goals, cards) => {
-    let ty = y;
-
-    // Section header
-    doc.setFillColor(30, 42, 70);
-    doc.rect(startX, ty - 4, colW, 10, "F");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.setTextColor(234, 179, 8);
-    doc.text(teamName.toUpperCase(), startX + colW / 2, ty + 2.5, { align: "center" });
-    ty += 10;
-
-    // Column headers
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(7);
-    doc.setTextColor(156, 163, 175);
-    doc.text("#", startX + 2, ty);
-    doc.text("Player", startX + 12, ty);
-    doc.text("G", startX + colW - 14, ty, { align: "right" });
-    doc.text("Y", startX + colW - 8, ty, { align: "right" });
-    doc.text("R", startX + colW - 2, ty, { align: "right" });
-    ty += 3;
-    doc.setDrawColor(55, 65, 81);
-    doc.line(startX, ty, startX + colW, ty);
-    ty += 4;
-
-    const active = players.filter((p) => p.num || p.name);
-    if (active.length === 0) {
-      doc.setFont("helvetica", "italic");
-      doc.setTextColor(75, 85, 99);
-      doc.text("No players entered", startX + colW / 2, ty + 2, { align: "center" });
-      ty += 8;
-    } else {
-      active.forEach((p, idx) => {
-        const gc = goals.filter((g) => g.playerId === p.id).length;
-        const pc = cards.filter((c) => c.playerId === p.id);
-        const yc = pc.filter((c) => c.type === "yellow").length;
-        const rc = pc.filter((c) => c.type === "red").length;
-        if (idx % 2 === 0) {
-          doc.setFillColor(18, 26, 45);
-          doc.rect(startX, ty - 3, colW, 6, "F");
-        }
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(7.5);
-        doc.setTextColor(200, 210, 230);
-        doc.text(p.num || "–", startX + 2, ty);
-        doc.text(p.name || "–", startX + 12, ty);
-        // Goals
-        if (gc > 0) { doc.setTextColor(134, 239, 172); doc.setFont("helvetica", "bold"); }
-        else { doc.setTextColor(75, 85, 99); doc.setFont("helvetica", "normal"); }
-        doc.text(String(gc), startX + colW - 14, ty, { align: "right" });
-        // Yellow cards
-        if (yc > 0) { doc.setTextColor(250, 204, 21); doc.setFont("helvetica", "bold"); }
-        else { doc.setTextColor(75, 85, 99); doc.setFont("helvetica", "normal"); }
-        doc.text(String(yc), startX + colW - 8, ty, { align: "right" });
-        // Red cards
-        if (rc > 0) { doc.setTextColor(239, 68, 68); doc.setFont("helvetica", "bold"); }
-        else { doc.setTextColor(75, 85, 99); doc.setFont("helvetica", "normal"); }
-        doc.text(String(rc), startX + colW - 2, ty, { align: "right" });
-        ty += 5.5;
-      });
-    }
-
-    // Events log
+  const formatEvents = (goals, cards, players) => {
     const allEvents = [
       ...goals.map((g) => ({ ...g, etype: "goal" })),
       ...cards.map((c) => ({ ...c, etype: "card" })),
-    ].sort((a, b) => (a.half - b.half) || (a.elapsedSecs - b.elapsedSecs));
-
-    if (allEvents.length > 0) {
-      ty += 2;
-      doc.setDrawColor(55, 65, 81);
-      doc.line(startX, ty, startX + colW, ty);
-      ty += 5;
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(7.5);
-      doc.setTextColor(234, 179, 8);
-      doc.text("Match Events", startX, ty);
-      ty += 4.5;
-
-      let lastHalf = null;
-      allEvents.forEach((ev) => {
-        // Ubaci oznaku poluvremena kada se promeni
-        if (ev.half !== lastHalf) {
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(6.5);
-          doc.setTextColor(ev.half === 1 ? 96 : 251, ev.half === 1 ? 165 : 146, ev.half === 1 ? 250 : 60);
-          doc.text(`── ${ev.half === 1 ? "1. Poluvreme" : "2. Poluvreme"} ──`, startX, ty);
-          ty += 4;
-          lastHalf = ev.half;
-        }
-
-        const player = players.find((p) => p.id === ev.playerId);
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(7);
-        const halfLabel = ev.half === 2 ? " [P2]" : " [P1]";
-        if (ev.etype === "goal") {
-          doc.setTextColor(134, 239, 172);
-          doc.text(`${ev.clockMin}'${halfLabel}  G  #${player?.num || "?"} ${player?.name || ev.snapName || "Unknown"}`, startX, ty);
-        } else {
-          const isRed = ev.type === "red";
-          doc.setTextColor(isRed ? 239 : 250, isRed ? 68 : 204, isRed ? 68 : 21);
-          const label = isRed ? (ev.auto ? "RC(2Y→R)" : "RC") : "YC";
-          doc.text(`${ev.clockMin}'${halfLabel}  ${label}  #${player?.num || "?"} ${player?.name || ev.snapName || "Unknown"}`, startX, ty);
-        }
-        ty += 4.5;
-      });
-    }
-
-    return ty;
+    ].sort((a, b) => (a.half - b.half) || a.elapsedSecs - b.elapsedSecs);
+    if (allEvents.length === 0) return "<p style='color:#999;font-size:11px;margin:4px 0'>Nema događaja</p>";
+    let html = "";
+    let lastHalf = null;
+    allEvents.forEach((ev) => {
+      if (ev.half !== lastHalf) {
+        html += `<div style="font-size:10px;font-weight:bold;color:#666;margin:6px 0 2px;border-top:1px solid #eee;padding-top:4px">${ev.half === 1 ? "1. Poluvreme" : "2. Poluvreme"}</div>`;
+        lastHalf = ev.half;
+      }
+      const player = players.find((p) => p.id === ev.playerId);
+      const name = player?.name || ev.snapName || "Nepoznat";
+      const num = player?.num ? `#${player.num} ` : "";
+      if (ev.etype === "goal") {
+        html += `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px">
+          <span style="font-weight:bold;color:#333;min-width:30px">${ev.clockMin}'</span>
+          <span>⚽</span>
+          <span>${num}${name}</span>
+        </div>`;
+      } else {
+        const isRed = ev.type === "red";
+        const label = ev.auto ? " (2Ž→C)" : "";
+        html += `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px">
+          <span style="font-weight:bold;color:#333;min-width:30px">${ev.clockMin}'</span>
+          <span style="display:inline-block;width:10px;height:14px;background:${isRed ? "#ef4444" : "#eab308"};border-radius:2px;flex-shrink:0"></span>
+          <span>${num}${name}${label}</span>
+        </div>`;
+      }
+    });
+    return html;
   };
 
-  const endLeft = renderTeamSection(colLeft, homeTeam, homePlayers, homeGoals, homeCards);
-  const endRight = renderTeamSection(colRight, awayTeam, awayPlayers, awayGoals, awayCards);
-  let finalY = Math.max(endLeft, endRight) + 8;
+  const formatRoster = (players, goals, cards) => {
+    const active = players.filter((p) => p.num || p.name);
+    if (active.length === 0) return `<tr><td colspan="4" style="padding:6px;color:#999;font-size:11px;text-align:center">Nema unetih igrača</td></tr>`;
+    return active.map((p, idx) => {
+      const pg = goals.filter((g) => g.playerId === p.id);
+      const pc = cards.filter((c) => c.playerId === p.id);
+      const goalStr = pg.map((g) => `⚽ ${g.clockMin}'`).join(" ");
+      const cardStr = pc.map((c) =>
+        `<span style="display:inline-block;width:8px;height:11px;background:${c.type === "red" ? "#ef4444" : "#eab308"};border-radius:1px;vertical-align:middle;margin-right:1px"></span>${c.clockMin}'`
+      ).join(" ");
+      const bg = idx % 2 === 0 ? "#f9f9f9" : "#fff";
+      const bold = pg.length > 0 ? "font-weight:bold" : "";
+      return `<tr style="background:${bg}">
+        <td style="padding:4px 6px;font-size:11px;color:#555;white-space:nowrap">${p.num || "–"}</td>
+        <td style="padding:4px 6px;font-size:12px;${bold}">${p.name || "–"}</td>
+        <td style="padding:4px 6px;font-size:11px;white-space:nowrap">${goalStr}</td>
+        <td style="padding:4px 6px;font-size:11px;white-space:nowrap">${cardStr}</td>
+      </tr>`;
+    }).join("");
+  };
 
-  doc.setDrawColor(55, 65, 81);
-  doc.setLineWidth(0.3);
-  doc.line(15, finalY, W - 15, finalY);
-  finalY += 5;
-  doc.setFont("helvetica", "italic");
-  doc.setFontSize(7);
-  doc.setTextColor(75, 85, 99);
-  doc.text("IT LIGA++", W / 2, finalY, { align: "center" });
+  const teamBlock = (teamName, players, goals, cards, fouls) => `
+    <div style="flex:1;min-width:0">
+      <div style="background:#111;color:#fff;padding:6px 10px;font-size:12px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;border-radius:4px 4px 0 0">${teamName} <span style="font-weight:normal;font-size:10px;opacity:0.6">Fauli: ${fouls}/8</span></div>
+      <table style="width:100%;border-collapse:collapse;border:1px solid #ddd;border-top:none">
+        <thead>
+          <tr style="background:#eee">
+            <th style="padding:3px 6px;font-size:10px;text-align:left;color:#666;font-weight:bold">#</th>
+            <th style="padding:3px 6px;font-size:10px;text-align:left;color:#666;font-weight:bold">Igrač</th>
+            <th style="padding:3px 6px;font-size:10px;text-align:left;color:#666;font-weight:bold">Golovi</th>
+            <th style="padding:3px 6px;font-size:10px;text-align:left;color:#666;font-weight:bold">Kartoni</th>
+          </tr>
+        </thead>
+        <tbody>${formatRoster(players, goals, cards)}</tbody>
+      </table>
+      <div style="margin-top:8px">
+        <div style="font-size:10px;font-weight:bold;color:#333;margin-bottom:2px;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid #eee;padding-bottom:2px">Događaji</div>
+        ${formatEvents(goals, cards, players)}
+      </div>
+    </div>`;
 
-  const safeHome = homeTeam.replace(/[^a-z0-9]/gi, "-").toLowerCase();
-  const safeAway = awayTeam.replace(/[^a-z0-9]/gi, "-").toLowerCase();
-  doc.save(`futsal-${safeHome}-vs-${safeAway}-${Date.now()}.pdf`);
+  const html = `
+    <div style="font-family:Arial,Helvetica,sans-serif;background:#fff;color:#111;padding:16px;max-width:794px;box-sizing:border-box">
+      <div style="text-align:center;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:12px">
+        <div style="font-size:18px;font-weight:900;letter-spacing:3px;text-transform:uppercase">IT LIGA++ NIŠ</div>
+        <div style="font-size:12px;font-weight:bold;margin-top:2px">Zapisnik meča</div>
+        <div style="font-size:10px;color:#666;margin-top:2px">${dateStr} · ${timeStr}</div>
+      </div>
+      <div style="text-align:center;margin-bottom:14px;padding:10px;background:#f5f5f5;border-radius:6px;border:1px solid #ddd">
+        <div style="display:flex;align-items:center;justify-content:center;gap:20px">
+          <div style="text-align:right">
+            <div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:1px">${homeTeam}</div>
+            <div style="font-size:44px;font-weight:900;line-height:1.1">${homeGoals.length}</div>
+          </div>
+          <div style="font-size:28px;color:#999;font-weight:bold">–</div>
+          <div style="text-align:left">
+            <div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:1px">${awayTeam}</div>
+            <div style="font-size:44px;font-weight:900;line-height:1.1">${awayGoals.length}</div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;gap:14px">
+        ${teamBlock(homeTeam, homePlayers, homeGoals, homeCards, homeFouls)}
+        ${teamBlock(awayTeam, awayPlayers, awayGoals, awayCards, awayFouls)}
+      </div>
+      ${(() => {
+        const allPlayers = [
+          ...homePlayers.map(p => ({ ...p, team: homeTeam })),
+          ...awayPlayers.map(p => ({ ...p, team: awayTeam })),
+        ];
+        const mvpPlayer = allPlayers.find(p => p.id === matchMvp);
+        if (!mvpPlayer) return "";
+        return `<div style="margin-top:14px;padding:10px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;text-align:center">
+          <div style="font-size:11px;font-weight:bold;color:#92400e;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">⭐ Igrač utakmice</div>
+          <div style="font-size:18px;font-weight:900;color:#111">${mvpPlayer.num ? "#"+mvpPlayer.num+" " : ""}${mvpPlayer.name}</div>
+          <div style="font-size:11px;color:#92400e;margin-top:2px">${mvpPlayer.team}</div>
+        </div>`;
+      })()}
+      <div style="margin-top:14px;border-top:1px solid #ddd;padding-top:6px;text-align:center;font-size:10px;color:#999">
+        IT LIGA++ NIŠ · Automatski generisano
+      </div>
+    </div>`;
+
+  const el = document.createElement("div");
+  el.innerHTML = html;
+  document.body.appendChild(el);
+
+  const safeHome = homeTeam.replace(/\s+/g, "-").toLowerCase();
+  const safeAway = awayTeam.replace(/\s+/g, "-").toLowerCase();
+
+  await html2pdf().set({
+    margin: 6,
+    filename: `itliga-${safeHome}-vs-${safeAway}.pdf`,
+    html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+    jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+  }).from(el).save();
+
+  document.body.removeChild(el);
 }
 
-// ── Login Screen ──────────────────────────────────────────────────────────────
 // ── Match Close Modal (zaključi meč + QR za potvrdu) ─────────────────────────
 function MatchCloseModal({ homeTeam, awayTeam, homeGoals, awayGoals,
   homeCards, awayCards, homePlayers, awayPlayers, homeFouls, awayFouls,
@@ -1324,6 +1295,7 @@ export default function FutsalTracker() {
   const [awayCards, setAwayCards] = useState(s?.awayCards ?? []);
   const [homeFouls, setHomeFouls] = useState(s?.homeFouls ?? 0);
   const [awayFouls, setAwayFouls] = useState(s?.awayFouls ?? 0);
+  const [matchMvp, setMatchMvp] = useState(s?.matchMvp ?? "");
   const [restoredMsg, setRestoredMsg] = useState(s ? "Meč učitan iz memorije" : "");
 
   // Liga Excel state — shared between both team panels
@@ -1349,10 +1321,12 @@ export default function FutsalTracker() {
   useEffect(() => {
     saveMatchToStorage({
       secs, half, halfDuration, homeTeam, awayTeam, homePlayers, awayPlayers,
-      homeGoals, awayGoals, homeCards, awayCards, homeFouls, awayFouls, matchLocked,
+      homeGoals, awayGoals, homeCards, awayCards, homeFouls, awayFouls,
+      matchMvp, matchLocked,
     });
   }, [secs, half, halfDuration, homeTeam, awayTeam, homePlayers, awayPlayers,
-      homeGoals, awayGoals, homeCards, awayCards, homeFouls, awayFouls, matchLocked]);
+      homeGoals, awayGoals, homeCards, awayCards, homeFouls, awayFouls,
+      matchMvp, matchLocked]);
 
   // Hide "restored" message after a few seconds
   useEffect(() => {
@@ -1362,19 +1336,48 @@ export default function FutsalTracker() {
     }
   }, [restoredMsg]);
 
-  // Timer
+  const startTimeRef = useRef(null);
+  const startSecsRef = useRef(null);
+
+  // Timer — koristi Date.now() da radi i sa zaključanim ekranom
   useEffect(() => {
     if (running) {
+      startTimeRef.current = Date.now();
+      startSecsRef.current = secsRef.current;
       timerRef.current = setInterval(() => {
-        setSecs((prev) => {
-          if (prev <= 1) { clearInterval(timerRef.current); setRunning(false); return 0; }
-          return prev - 1;
-        });
-      }, 1000);
+        const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
+        const newSecs = startSecsRef.current - elapsed;
+        if (newSecs <= 0) {
+          clearInterval(timerRef.current);
+          setSecs(0);
+          setRunning(false);
+        } else {
+          setSecs(newSecs);
+        }
+      }, 500);
     } else {
       clearInterval(timerRef.current);
     }
     return () => clearInterval(timerRef.current);
+  }, [running]);
+
+  // Resync odmah kad se ekran otključa / tab postane aktivan
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible" && running && startTimeRef.current) {
+        const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
+        const newSecs = startSecsRef.current - elapsed;
+        if (newSecs <= 0) {
+          clearInterval(timerRef.current);
+          setSecs(0);
+          setRunning(false);
+        } else {
+          setSecs(newSecs);
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, [running]);
 
   const toggleTimer = () => { if (secs > 0) setRunning((r) => !r); };
@@ -1488,7 +1491,7 @@ export default function FutsalTracker() {
       await generatePDF({
         homeTeam, awayTeam, homePlayers, awayPlayers,
         homeGoals, awayGoals, homeCards, awayCards,
-        homeFouls, awayFouls,
+        homeFouls, awayFouls, matchMvp,
       });
       setPdfMsg("Downloaded ✓");
       setTimeout(() => setPdfMsg(""), 3000);
@@ -1515,6 +1518,7 @@ export default function FutsalTracker() {
     setAwayCards([]);
     setHomeFouls(0);
     setAwayFouls(0);
+    setMatchMvp("");
     setPdfMsg("");
     setShowNewMatchConfirm(false);
     setHalf(1);
@@ -1885,10 +1889,50 @@ export default function FutsalTracker() {
                 <div className="text-[10px] text-gray-600 truncate">{awayTeam}</div>
               </div>
             </div>
+
+            {/* MVP — Igrač utakmice */}
+            {(() => {
+              const allPlayed = [
+                ...homePlayers.filter(p => p.played && (p.num || p.name)).map(p => ({ ...p, team: homeTeam })),
+                ...awayPlayers.filter(p => p.played && (p.num || p.name)).map(p => ({ ...p, team: awayTeam })),
+              ];
+              if (allPlayed.length === 0) return null;
+              const mvpPlayer = allPlayed.find(p => p.id === matchMvp);
+              return (
+                <div className="col-span-2 pt-3 border-t border-gray-800">
+                  <p className="text-[10px] uppercase tracking-widest text-yellow-500 text-center mb-2">⭐ Igrač utakmice</p>
+                  <select
+                    value={matchMvp}
+                    onChange={(e) => setMatchMvp(e.target.value)}
+                    className={`w-full bg-gray-800 border-2 ${
+                      matchMvp ? "border-yellow-500/60" : "border-gray-700"
+                    } text-white text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-yellow-500 transition-all cursor-pointer`}
+                  >
+                    <option value="">— Izaberi igrača utakmice —</option>
+                    <optgroup label={homeTeam}>
+                      {homePlayers.filter(p => p.played && (p.num || p.name)).map(p => (
+                        <option key={p.id} value={p.id}>{p.num ? `#${p.num} ` : ""}{p.name}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label={awayTeam}>
+                      {awayPlayers.filter(p => p.played && (p.num || p.name)).map(p => (
+                        <option key={p.id} value={p.id}>{p.num ? `#${p.num} ` : ""}{p.name}</option>
+                      ))}
+                    </optgroup>
+                  </select>
+                  {mvpPlayer && (
+                    <div className="mt-2 text-center">
+                      <span className="text-yellow-400 font-black text-sm">
+                        {mvpPlayer.num ? `#${mvpPlayer.num} ` : ""}{mvpPlayer.name}
+                      </span>
+                      <span className="text-gray-500 text-xs ml-1">({mvpPlayer.team})</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
-
-        {/* Away */}
         <div className="p-4 lg:p-5">
           <TeamPanel
             side="away"
