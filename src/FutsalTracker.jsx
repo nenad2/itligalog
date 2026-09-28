@@ -5,18 +5,6 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 
-// ── html2pdf loader ───────────────────────────────────────────────────────────
-async function loadHtml2pdf() {
-  if (window.html2pdf) return window.html2pdf;
-  return new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
-    script.onload = () => resolve(window.html2pdf);
-    script.onerror = reject;
-    document.head.appendChild(script);
-  });
-}
-
 // ── SheetJS (xlsx) dynamic loader ────────────────────────────────────────────
 async function getXLSX() {
   if (window.XLSX) return window.XLSX;
@@ -988,144 +976,222 @@ function MatchTimeline({ homeGoals, awayGoals, homeCards, awayCards,
 // ── PDF Generator ─────────────────────────────────────────────────────────────
 async function generatePDF({ homeTeam, awayTeam, homePlayers, awayPlayers,
   homeGoals, awayGoals, homeCards, awayCards, homeFouls, awayFouls, matchMvp }) {
-  const html2pdf = await loadHtml2pdf();
-  const now = new Date();
-  const dateStr = now.toLocaleDateString("sr-Latn", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-  const timeStr = now.toLocaleTimeString("sr-Latn", { hour: "2-digit", minute: "2-digit" });
 
-  const formatEvents = (goals, cards, players) => {
-    const allEvents = [
-      ...goals.map((g) => ({ ...g, etype: "goal" })),
-      ...cards.map((c) => ({ ...c, etype: "card" })),
+  // Učitaj jsPDF
+  const JsPDF = await new Promise((resolve, reject) => {
+    if (window.jspdf?.jsPDF) return resolve(window.jspdf.jsPDF);
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+    s.onload = () => resolve(window.jspdf.jsPDF);
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+
+  // Zamena latiničnih slova za prikaz u PDF-u
+  const lat = (str = "") => str
+    .replace(/[ČĆŠŽĐ]/g, c => ({ Č:"C", Ć:"C", Š:"S", Ž:"Z", Đ:"D" })[c] || c)
+    .replace(/[čćšžđ]/g, c => ({ č:"c", ć:"c", š:"s", ž:"z", đ:"d" })[c] || c);
+
+  const doc = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const W = doc.internal.pageSize.getWidth();
+  const now = new Date();
+  const dateStr = now.toLocaleDateString("sr", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const timeStr = now.toLocaleTimeString("sr", { hour: "2-digit", minute: "2-digit" });
+
+  // ── Helpers
+  const col1 = 12, col2 = W / 2 + 4, colW = W / 2 - 16;
+
+  const sectionHeader = (x, w, text, y) => {
+    doc.setFillColor(30, 30, 30);
+    doc.rect(x, y - 4, w, 8, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(255, 255, 255);
+    doc.text(lat(text).toUpperCase(), x + w / 2, y + 0.5, { align: "center" });
+    return y + 8;
+  };
+
+  const tableHeader = (x, w, y) => {
+    doc.setFillColor(230, 230, 230);
+    doc.rect(x, y - 3, w, 6, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.setTextColor(80, 80, 80);
+    doc.text("#", x + 2, y + 0.5);
+    doc.text("Igrac", x + 10, y + 0.5);
+    doc.text("Golovi", x + w - 26, y + 0.5);
+    doc.text("Kartoni", x + w - 2, y + 0.5, { align: "right" });
+    return y + 5;
+  };
+
+  const playerRows = (x, w, players, goals, cards, startY) => {
+    let y = startY;
+    const active = players.filter(p => p.num || p.name);
+    if (!active.length) {
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(7);
+      doc.setTextColor(150, 150, 150);
+      doc.text("Nema igraca", x + w / 2, y + 2, { align: "center" });
+      return y + 6;
+    }
+    active.forEach((p, i) => {
+      if (i % 2 === 0) { doc.setFillColor(248, 248, 248); doc.rect(x, y - 3, w, 6, "F"); }
+      const gc = goals.filter(g => g.playerId === p.id);
+      const pc = cards.filter(c => c.playerId === p.id);
+      const yc = pc.filter(c => c.type === "yellow").length;
+      const rc = pc.filter(c => c.type === "red").length;
+      doc.setFont("helvetica", gc.length ? "bold" : "normal");
+      doc.setFontSize(7.5);
+      doc.setTextColor(40, 40, 40);
+      doc.text(lat(p.num || "–"), x + 2, y + 0.5);
+      doc.text(lat(p.name || "–"), x + 10, y + 0.5);
+      // golovi
+      const goalStr = gc.map(g => `${g.clockMin}'`).join(" ");
+      if (goalStr) { doc.setTextColor(20, 140, 60); doc.setFont("helvetica", "bold"); doc.text(goalStr, x + w - 26, y + 0.5); }
+      // kartoni
+      doc.setFont("helvetica", "normal");
+      let kx = x + w - 2;
+      if (rc) { doc.setTextColor(220, 38, 38); doc.text(`${rc}C`, kx, y + 0.5, { align: "right" }); kx -= 8; }
+      if (yc) { doc.setTextColor(180, 140, 0); doc.text(`${yc}Z`, kx, y + 0.5, { align: "right" }); }
+      doc.setTextColor(40, 40, 40);
+      y += 5.5;
+    });
+    return y;
+  };
+
+  const eventsSection = (x, w, goals, cards, players, startY) => {
+    let y = startY;
+    const all = [
+      ...goals.map(g => ({ ...g, etype: "goal" })),
+      ...cards.map(c => ({ ...c, etype: "card" })),
     ].sort((a, b) => (a.half - b.half) || a.elapsedSecs - b.elapsedSecs);
-    if (allEvents.length === 0) return "<p style='color:#999;font-size:11px;margin:4px 0'>Nema događaja</p>";
-    let html = "";
+    if (!all.length) return y;
+    doc.setDrawColor(200, 200, 200);
+    doc.line(x, y, x + w, y);
+    y += 4;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.setTextColor(60, 60, 60);
+    doc.text("DOGADJAJI", x, y);
+    y += 4;
     let lastHalf = null;
-    allEvents.forEach((ev) => {
+    all.forEach(ev => {
       if (ev.half !== lastHalf) {
-        html += `<div style="font-size:10px;font-weight:bold;color:#666;margin:6px 0 2px;border-top:1px solid #eee;padding-top:4px">${ev.half === 1 ? "1. Poluvreme" : "2. Poluvreme"}</div>`;
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(6.5);
+        doc.setTextColor(ev.half === 1 ? 37 : 234, ev.half === 1 ? 99 : 88, ev.half === 1 ? 235 : 12);
+        doc.text(ev.half === 1 ? "- 1. Poluvreme -" : "- 2. Poluvreme -", x, y);
+        y += 3.5;
         lastHalf = ev.half;
       }
-      const player = players.find((p) => p.id === ev.playerId);
-      const name = player?.name || ev.snapName || "Nepoznat";
+      const player = players.find(p => p.id === ev.playerId);
+      const name = lat(player?.name || ev.snapName || "?");
       const num = player?.num ? `#${player.num} ` : "";
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
       if (ev.etype === "goal") {
-        html += `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px">
-          <span style="font-weight:bold;color:#333;min-width:30px">${ev.clockMin}'</span>
-          <span>⚽</span>
-          <span>${num}${name}</span>
-        </div>`;
+        doc.setTextColor(20, 140, 60);
+        doc.text(`${ev.clockMin}' G  ${num}${name}`, x, y);
       } else {
         const isRed = ev.type === "red";
-        const label = ev.auto ? " (2Ž→C)" : "";
-        html += `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px">
-          <span style="font-weight:bold;color:#333;min-width:30px">${ev.clockMin}'</span>
-          <span style="display:inline-block;width:10px;height:14px;background:${isRed ? "#ef4444" : "#eab308"};border-radius:2px;flex-shrink:0"></span>
-          <span>${num}${name}${label}</span>
-        </div>`;
+        doc.setTextColor(isRed ? 220 : 160, isRed ? 38 : 120, isRed ? 38 : 0);
+        const label = isRed ? (ev.auto ? "RC(2Z)" : "RC") : "ZK";
+        doc.text(`${ev.clockMin}' ${label}  ${num}${name}`, x, y);
       }
+      y += 4;
     });
-    return html;
+    return y;
   };
 
-  const formatRoster = (players, goals, cards) => {
-    const active = players.filter((p) => p.num || p.name);
-    if (active.length === 0) return `<tr><td colspan="4" style="padding:6px;color:#999;font-size:11px;text-align:center">Nema unetih igrača</td></tr>`;
-    return active.map((p, idx) => {
-      const pg = goals.filter((g) => g.playerId === p.id);
-      const pc = cards.filter((c) => c.playerId === p.id);
-      const goalStr = pg.map((g) => `⚽ ${g.clockMin}'`).join(" ");
-      const cardStr = pc.map((c) =>
-        `<span style="display:inline-block;width:8px;height:11px;background:${c.type === "red" ? "#ef4444" : "#eab308"};border-radius:1px;vertical-align:middle;margin-right:1px"></span>${c.clockMin}'`
-      ).join(" ");
-      const bg = idx % 2 === 0 ? "#f9f9f9" : "#fff";
-      const bold = pg.length > 0 ? "font-weight:bold" : "";
-      return `<tr style="background:${bg}">
-        <td style="padding:4px 6px;font-size:11px;color:#555;white-space:nowrap">${p.num || "–"}</td>
-        <td style="padding:4px 6px;font-size:12px;${bold}">${p.name || "–"}</td>
-        <td style="padding:4px 6px;font-size:11px;white-space:nowrap">${goalStr}</td>
-        <td style="padding:4px 6px;font-size:11px;white-space:nowrap">${cardStr}</td>
-      </tr>`;
-    }).join("");
-  };
+  // ── HEADER
+  doc.setFillColor(15, 15, 15);
+  doc.rect(0, 0, W, 22, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  doc.setTextColor(255, 215, 0);
+  doc.text("IT LIGA++ NIS", W / 2, 10, { align: "center" });
+  doc.setFontSize(8);
+  doc.setTextColor(180, 180, 180);
+  doc.text("Zapisnik meca", W / 2, 16, { align: "center" });
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7);
+  doc.setTextColor(140, 140, 140);
+  doc.text(`${dateStr}  ·  ${timeStr}`, W / 2, 20, { align: "center" });
 
-  const teamBlock = (teamName, players, goals, cards, fouls) => `
-    <div style="flex:1;min-width:0">
-      <div style="background:#111;color:#fff;padding:6px 10px;font-size:12px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;border-radius:4px 4px 0 0">${teamName} <span style="font-weight:normal;font-size:10px;opacity:0.6">Fauli: ${fouls}/8</span></div>
-      <table style="width:100%;border-collapse:collapse;border:1px solid #ddd;border-top:none">
-        <thead>
-          <tr style="background:#eee">
-            <th style="padding:3px 6px;font-size:10px;text-align:left;color:#666;font-weight:bold">#</th>
-            <th style="padding:3px 6px;font-size:10px;text-align:left;color:#666;font-weight:bold">Igrač</th>
-            <th style="padding:3px 6px;font-size:10px;text-align:left;color:#666;font-weight:bold">Golovi</th>
-            <th style="padding:3px 6px;font-size:10px;text-align:left;color:#666;font-weight:bold">Kartoni</th>
-          </tr>
-        </thead>
-        <tbody>${formatRoster(players, goals, cards)}</tbody>
-      </table>
-      <div style="margin-top:8px">
-        <div style="font-size:10px;font-weight:bold;color:#333;margin-bottom:2px;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid #eee;padding-bottom:2px">Događaji</div>
-        ${formatEvents(goals, cards, players)}
-      </div>
-    </div>`;
+  // ── SCORE
+  doc.setFillColor(240, 240, 240);
+  doc.rect(12, 26, W - 24, 20, "F");
+  doc.setDrawColor(200, 200, 200);
+  doc.rect(12, 26, W - 24, 20, "S");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(80, 80, 80);
+  doc.text(lat(homeTeam).toUpperCase(), W / 2 - 18, 34, { align: "right" });
+  doc.text(lat(awayTeam).toUpperCase(), W / 2 + 18, 34, { align: "left" });
+  doc.setFontSize(26);
+  doc.setTextColor(20, 20, 20);
+  doc.text(String(homeGoals.length), W / 2 - 10, 43, { align: "center" });
+  doc.text(String(awayGoals.length), W / 2 + 10, 43, { align: "center" });
+  doc.setFontSize(18);
+  doc.setTextColor(140, 140, 140);
+  doc.text("–", W / 2, 43, { align: "center" });
+  doc.setFontSize(7);
+  doc.setTextColor(140, 140, 140);
+  doc.text(`Fauli: ${homeFouls}/8`, W / 2 - 18, 44, { align: "right" });
+  doc.text(`Fauli: ${awayFouls}/8`, W / 2 + 18, 44, { align: "left" });
 
-  const html = `
-    <div style="font-family:Arial,Helvetica,sans-serif;background:#fff;color:#111;padding:16px;max-width:794px;box-sizing:border-box">
-      <div style="text-align:center;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:12px">
-        <div style="font-size:18px;font-weight:900;letter-spacing:3px;text-transform:uppercase">IT LIGA++ NIŠ</div>
-        <div style="font-size:12px;font-weight:bold;margin-top:2px">Zapisnik meča</div>
-        <div style="font-size:10px;color:#666;margin-top:2px">${dateStr} · ${timeStr}</div>
-      </div>
-      <div style="text-align:center;margin-bottom:14px;padding:10px;background:#f5f5f5;border-radius:6px;border:1px solid #ddd">
-        <div style="display:flex;align-items:center;justify-content:center;gap:20px">
-          <div style="text-align:right">
-            <div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:1px">${homeTeam}</div>
-            <div style="font-size:44px;font-weight:900;line-height:1.1">${homeGoals.length}</div>
-          </div>
-          <div style="font-size:28px;color:#999;font-weight:bold">–</div>
-          <div style="text-align:left">
-            <div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:1px">${awayTeam}</div>
-            <div style="font-size:44px;font-weight:900;line-height:1.1">${awayGoals.length}</div>
-          </div>
-        </div>
-      </div>
-      <div style="display:flex;gap:14px">
-        ${teamBlock(homeTeam, homePlayers, homeGoals, homeCards, homeFouls)}
-        ${teamBlock(awayTeam, awayPlayers, awayGoals, awayCards, awayFouls)}
-      </div>
-      ${(() => {
-        const allPlayers = [
-          ...homePlayers.map(p => ({ ...p, team: homeTeam })),
-          ...awayPlayers.map(p => ({ ...p, team: awayTeam })),
-        ];
-        const mvpPlayer = allPlayers.find(p => p.id === matchMvp);
-        if (!mvpPlayer) return "";
-        return `<div style="margin-top:14px;padding:10px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;text-align:center">
-          <div style="font-size:11px;font-weight:bold;color:#92400e;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">⭐ Igrač utakmice</div>
-          <div style="font-size:18px;font-weight:900;color:#111">${mvpPlayer.num ? "#"+mvpPlayer.num+" " : ""}${mvpPlayer.name}</div>
-          <div style="font-size:11px;color:#92400e;margin-top:2px">${mvpPlayer.team}</div>
-        </div>`;
-      })()}
-      <div style="margin-top:14px;border-top:1px solid #ddd;padding-top:6px;text-align:center;font-size:10px;color:#999">
-        IT LIGA++ NIŠ · Automatski generisano
-      </div>
-    </div>`;
+  // ── TWO COLUMNS
+  let yLeft = 52, yRight = 52;
 
-  const el = document.createElement("div");
-  el.innerHTML = html;
-  document.body.appendChild(el);
+  // Home header
+  yLeft = sectionHeader(col1, colW, homeTeam, yLeft);
+  yLeft = tableHeader(col1, colW, yLeft);
+  yLeft = playerRows(col1, colW, homePlayers, homeGoals, homeCards, yLeft);
+  yLeft = eventsSection(col1, colW, homeGoals, homeCards, homePlayers, yLeft + 3);
 
-  const safeHome = homeTeam.replace(/\s+/g, "-").toLowerCase();
-  const safeAway = awayTeam.replace(/\s+/g, "-").toLowerCase();
+  // Away header
+  yRight = sectionHeader(col2, colW, awayTeam, yRight);
+  yRight = tableHeader(col2, colW, yRight);
+  yRight = playerRows(col2, colW, awayPlayers, awayGoals, awayCards, yRight);
+  yRight = eventsSection(col2, colW, awayGoals, awayCards, awayPlayers, yRight + 3);
 
-  await html2pdf().set({
-    margin: 6,
-    filename: `itliga-${safeHome}-vs-${safeAway}.pdf`,
-    html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
-    jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-  }).from(el).save();
+  // ── MVP
+  const allPlayers = [
+    ...homePlayers.map(p => ({ ...p, teamLabel: lat(homeTeam) })),
+    ...awayPlayers.map(p => ({ ...p, teamLabel: lat(awayTeam) })),
+  ];
+  const mvpPlayer = allPlayers.find(p => p.id === matchMvp);
+  let finalY = Math.max(yLeft, yRight) + 6;
 
-  document.body.removeChild(el);
+  if (mvpPlayer) {
+    doc.setFillColor(255, 251, 235);
+    doc.setDrawColor(250, 204, 21);
+    doc.roundedRect(col1, finalY, W - 24, 14, 2, 2, "FD");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(146, 64, 14);
+    doc.text("IGRAC UTAKMICE", W / 2, finalY + 5, { align: "center" });
+    doc.setFontSize(11);
+    doc.setTextColor(20, 20, 20);
+    const mvpName = `${mvpPlayer.num ? "#" + mvpPlayer.num + " " : ""}${lat(mvpPlayer.name)}`;
+    doc.text(mvpName, W / 2, finalY + 11, { align: "center" });
+    doc.setFontSize(7);
+    doc.setTextColor(146, 64, 14);
+    doc.text(mvpPlayer.teamLabel, W / 2, finalY + 11.5, { align: "center" });
+    finalY += 18;
+  }
+
+  // ── FOOTER
+  doc.setDrawColor(200, 200, 200);
+  doc.line(col1, finalY, W - col1, finalY);
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(7);
+  doc.setTextColor(160, 160, 160);
+  doc.text("IT LIGA++ NIS · Automatski generisano", W / 2, finalY + 4, { align: "center" });
+
+  const safeHome = lat(homeTeam).replace(/\s+/g, "-").toLowerCase();
+  const safeAway = lat(awayTeam).replace(/\s+/g, "-").toLowerCase();
+  doc.save(`itliga-${safeHome}-vs-${safeAway}.pdf`);
 }
 
 // ── Match Close Modal (zaključi meč + QR za potvrdu) ─────────────────────────
