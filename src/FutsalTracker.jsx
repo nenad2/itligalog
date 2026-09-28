@@ -1019,8 +1019,9 @@ async function generatePDF({ homeTeam, awayTeam, homePlayers, awayPlayers,
     doc.setTextColor(80, 80, 80);
     doc.text("#", x + 2, y + 0.5);
     doc.text("Igrac", x + 10, y + 0.5);
-    doc.text("Golovi", x + w - 26, y + 0.5);
-    doc.text("Kartoni", x + w - 2, y + 0.5, { align: "right" });
+    doc.text("Igrao", x + w - 36, y + 0.5);
+    doc.text("Golovi", x + w - 22, y + 0.5);
+    doc.text("Kart.", x + w - 2, y + 0.5, { align: "right" });
     return y + 5;
   };
 
@@ -1045,9 +1046,19 @@ async function generatePDF({ homeTeam, awayTeam, homePlayers, awayPlayers,
       doc.setTextColor(40, 40, 40);
       doc.text(lat(p.num || "–"), x + 2, y + 0.5);
       doc.text(lat(p.name || "–"), x + 10, y + 0.5);
+      // igrao
+      if (p.played) {
+        doc.setTextColor(20, 140, 60);
+        doc.setFont("helvetica", "bold");
+        doc.text("DA", x + w - 36, y + 0.5);
+      } else {
+        doc.setTextColor(180, 180, 180);
+        doc.setFont("helvetica", "normal");
+        doc.text("–", x + w - 36, y + 0.5);
+      }
       // golovi
       const goalStr = gc.map(g => `${g.clockMin}'`).join(" ");
-      if (goalStr) { doc.setTextColor(20, 140, 60); doc.setFont("helvetica", "bold"); doc.text(goalStr, x + w - 26, y + 0.5); }
+      if (goalStr) { doc.setTextColor(20, 140, 60); doc.setFont("helvetica", "bold"); doc.text(goalStr, x + w - 22, y + 0.5); }
       // kartoni
       doc.setFont("helvetica", "normal");
       let kx = x + w - 2;
@@ -1166,7 +1177,7 @@ async function generatePDF({ homeTeam, awayTeam, homePlayers, awayPlayers,
   if (mvpPlayer) {
     doc.setFillColor(255, 251, 235);
     doc.setDrawColor(250, 204, 21);
-    doc.roundedRect(col1, finalY, W - 24, 14, 2, 2, "FD");
+    doc.roundedRect(col1, finalY, W - 24, 18, 2, 2, "FD");
     doc.setFont("helvetica", "bold");
     doc.setFontSize(7.5);
     doc.setTextColor(146, 64, 14);
@@ -1176,9 +1187,10 @@ async function generatePDF({ homeTeam, awayTeam, homePlayers, awayPlayers,
     const mvpName = `${mvpPlayer.num ? "#" + mvpPlayer.num + " " : ""}${lat(mvpPlayer.name)}`;
     doc.text(mvpName, W / 2, finalY + 11, { align: "center" });
     doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
     doc.setTextColor(146, 64, 14);
-    doc.text(mvpPlayer.teamLabel, W / 2, finalY + 11.5, { align: "center" });
-    finalY += 18;
+    doc.text(mvpPlayer.teamLabel, W / 2, finalY + 16, { align: "center" });
+    finalY += 22;
   }
 
   // ── FOOTER
