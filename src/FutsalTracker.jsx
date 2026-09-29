@@ -109,6 +109,53 @@ function fileToBase64(file) {
 // ── App config ────────────────────────────────────────────────────────────────
 const SHEETS_WEBHOOK = "https://script.google.com/macros/s/AKfycbxJjpC29FS4PUCPZRPCN30g8xyB_ddANbm0h12xyvxlJha7bWaiPa27PznZLdzGCNen/exec";
 const CONFIRM_FORM_URL = "https://forms.gle/eGHbncnZQ7nZWbaU7";
+const SUPABASE_URL = "https://ygkimzcbxdufthylhojs.supabase.co";
+const SUPABASE_KEY = "sb_publishable_2bBUQ9RCCPNRwqiopCBkbA_ovfkyaPW";
+
+// ── Supabase helper ───────────────────────────────────────────────────────────
+async function supabaseInsert(table, data) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "apikey": SUPABASE_KEY,
+      "Authorization": `Bearer ${SUPABASE_KEY}`,
+      "Prefer": "return=representation",
+    },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Supabase greška: ${err}`);
+  }
+  return res.json();
+}
+
+async function supabaseFetch(table, params = "") {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${params}`, {
+    headers: {
+      "apikey": SUPABASE_KEY,
+      "Authorization": `Bearer ${SUPABASE_KEY}`,
+    },
+  });
+  if (!res.ok) throw new Error("Greška pri učitavanju iz baze");
+  return res.json();
+}
+
+async function supabaseUpdate(table, id, data) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      "apikey": SUPABASE_KEY,
+      "Authorization": `Bearer ${SUPABASE_KEY}`,
+      "Prefer": "return=representation",
+    },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Greška pri ažuriranju u bazi");
+  return res.json();
+}
 
 // ── Constants & helpers ───────────────────────────────────────────────────────
 const DEFAULT_HALF_SECS = 20 * 60;
@@ -819,6 +866,13 @@ function TeamPanel({
               onCard={(player, type) => onCard(player, type)}
             />
           ))}
+          {/* Dodaj igrača dinamički */}
+          <button
+            onClick={() => onPlayerUpdate({ ...makePlayer(), _new: true })}
+            className={`mt-1 w-full py-1 rounded text-[10px] text-gray-600 hover:text-gray-400 hover:bg-gray-800 border border-dashed border-gray-800 hover:border-gray-600 transition-all ${isLeft ? "text-left pl-2" : "text-right pr-2"}`}
+          >
+            + Dodaj igrača
+          </button>
         </div>
       </div>
 
@@ -1221,14 +1275,15 @@ async function generatePDF({ homeTeam, awayTeam, homePlayers, awayPlayers,
 // ── Match Close Modal (zaključi meč + QR za potvrdu) ─────────────────────────
 function MatchCloseModal({ homeTeam, awayTeam, homeGoals, awayGoals,
   homeCards, awayCards, homePlayers, awayPlayers, homeFouls, awayFouls,
+  homeFoulsH1, awayFoulsH1, matchMvp, matchDbId,
   onClose, onConfirm }) {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
+  const [dbId, setDbId] = useState(matchDbId);
 
   const matchLabel = `${homeTeam} vs ${awayTeam} — ${new Date().toLocaleDateString("sr")}`;
 
-  // Format goals for sheet
   const formatGoals = (goals, players) =>
     goals.map((g) => {
       const p = players.find((pl) => pl.id === g.playerId);
@@ -1242,32 +1297,68 @@ function MatchCloseModal({ homeTeam, awayTeam, homeGoals, awayGoals,
       return `${c.clockMin}' ${type} #${p?.num || c.snapNum || "?"} ${p?.name || c.snapName || "?"}`;
     }).join(", ") || "—";
 
-  const sendToSheets = async () => {
+  const sendAll = async () => {
     setSending(true);
     setError("");
     try {
-      const payload = {
-        homeTeam,
-        awayTeam,
-        homeScore: homeGoals.length,
-        awayScore: awayGoals.length,
-        goalsDetail: `${homeTeam}: ${formatGoals(homeGoals, homePlayers)} | ${awayTeam}: ${formatGoals(awayGoals, awayPlayers)}`,
-        cardsDetail: `${homeTeam}: ${formatCards(homeCards, homePlayers)} | ${awayTeam}: ${formatCards(awayCards, awayPlayers)}`,
-        homeFouls,
-        awayFouls,
-        status: "Zaključan — čeka potvrdu",
-        matchLabel,
+      // MVP igrač
+      const allPlayers = [...homePlayers, ...awayPlayers];
+      const mvpPlayer = allPlayers.find(p => p.id === matchMvp);
+
+      // Pripremi detalje za Supabase
+      const detalji = {
+        homePlayers: homePlayers.filter(p => p.num || p.name),
+        awayPlayers: awayPlayers.filter(p => p.num || p.name),
+        homeGoals,
+        awayGoals,
+        homeCards,
+        awayCards,
       };
-      await fetch(SHEETS_WEBHOOK, {
+
+      const supabasePayload = {
+        home_tim: homeTeam,
+        away_tim: awayTeam,
+        home_golovi: homeGoals.length,
+        away_golovi: awayGoals.length,
+        home_fauli_p1: homeFoulsH1 ?? homeFouls,
+        home_fauli_p2: homeFoulsH1 !== null ? homeFouls : 0,
+        away_fauli_p1: awayFoulsH1 ?? awayFouls,
+        away_fauli_p2: awayFoulsH1 !== null ? awayFouls : 0,
+        detalji,
+        mvp: mvpPlayer ? `${mvpPlayer.num ? "#"+mvpPlayer.num+" " : ""}${mvpPlayer.name}` : null,
+        status: "zakljucan",
+      };
+
+      // Sačuvaj ili ažuriraj u Supabase
+      let savedId = dbId;
+      if (dbId) {
+        await supabaseUpdate("mecevi", dbId, supabasePayload);
+      } else {
+        const result = await supabaseInsert("mecevi", supabasePayload);
+        savedId = result[0]?.id;
+        setDbId(savedId);
+      }
+
+      // Pošalji i u Google Sheets (no-cors, ne čekamo odgovor)
+      fetch(SHEETS_WEBHOOK, {
         method: "POST",
         mode: "no-cors",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+        body: JSON.stringify({
+          homeTeam, awayTeam,
+          homeScore: homeGoals.length,
+          awayScore: awayGoals.length,
+          goalsDetail: `${homeTeam}: ${formatGoals(homeGoals, homePlayers)} | ${awayTeam}: ${formatGoals(awayGoals, awayPlayers)}`,
+          cardsDetail: `${homeTeam}: ${formatCards(homeCards, homePlayers)} | ${awayTeam}: ${formatCards(awayCards, awayPlayers)}`,
+          homeFouls, awayFouls, status: "Zaključan", matchLabel,
+        }),
+      }).catch(() => {});
+
       setSent(true);
-      onConfirm();
+      onConfirm(savedId);
     } catch (e) {
-      setError("Greška pri slanju. Provjeri internet konekciju.");
+      console.error(e);
+      setError("Greška pri slanju: " + e.message);
     } finally {
       setSending(false);
     }
@@ -1315,7 +1406,7 @@ function MatchCloseModal({ homeTeam, awayTeam, homeGoals, awayGoals,
                   Odustani
                 </button>
                 <button
-                  onClick={sendToSheets}
+                  onClick={sendAll}
                   disabled={sending}
                   className={`flex-1 py-2.5 rounded-xl text-sm font-black transition-all active:scale-95 ${
                     sending ? "bg-gray-700 text-gray-500 cursor-not-allowed"
@@ -1365,6 +1456,7 @@ export default function FutsalTracker() {
 
   const [showMatchClose, setShowMatchClose] = useState(false);
   const [matchLocked, setMatchLocked] = useState(s?.matchLocked ?? false);
+  const [matchDbId, setMatchDbId] = useState(s?.matchDbId ?? null);
 
   const [running, setRunning] = useState(false);
   const [secs, setSecs] = useState(s?.secs ?? DEFAULT_HALF_SECS);
@@ -1414,11 +1506,11 @@ export default function FutsalTracker() {
     saveMatchToStorage({
       secs, half, halfDuration, homeTeam, awayTeam, homePlayers, awayPlayers,
       homeGoals, awayGoals, homeCards, awayCards, homeFouls, awayFouls,
-      homeFoulsH1, awayFoulsH1, matchMvp, matchLocked,
+      homeFoulsH1, awayFoulsH1, matchMvp, matchLocked, matchDbId,
     });
   }, [secs, half, halfDuration, homeTeam, awayTeam, homePlayers, awayPlayers,
       homeGoals, awayGoals, homeCards, awayCards, homeFouls, awayFouls,
-      homeFoulsH1, awayFoulsH1, matchMvp, matchLocked]);
+      homeFoulsH1, awayFoulsH1, matchMvp, matchLocked, matchDbId]);
 
   // Hide "restored" message after a few seconds
   useEffect(() => {
@@ -1538,8 +1630,15 @@ export default function FutsalTracker() {
   }, [homeCards, awayCards]);
 
   const updatePlayer = (side, updated) => {
-    if (side === "home") setHomePlayers((ps) => ps.map((p) => p.id === updated.id ? updated : p));
-    else setAwayPlayers((ps) => ps.map((p) => p.id === updated.id ? updated : p));
+    if (updated._new) {
+      // Dodaj novog igrača na kraj liste
+      const { _new, ...newPlayer } = updated;
+      if (side === "home") setHomePlayers((ps) => [...ps, newPlayer]);
+      else setAwayPlayers((ps) => [...ps, newPlayer]);
+    } else {
+      if (side === "home") setHomePlayers((ps) => ps.map((p) => p.id === updated.id ? updated : p));
+      else setAwayPlayers((ps) => ps.map((p) => p.id === updated.id ? updated : p));
+    }
   };
 
   const changeFoul = (side, delta) => {
@@ -1617,6 +1716,7 @@ export default function FutsalTracker() {
     setShowNewMatchConfirm(false);
     setHalf(1);
     setMatchLocked(false);
+    setMatchDbId(null);
     setHomeSelectedTeam("");
     setAwaySelectedTeam("");
     clearMatchFromStorage();
@@ -2161,8 +2261,17 @@ export default function FutsalTracker() {
           awayPlayers={awayPlayers}
           homeFouls={homeFouls}
           awayFouls={awayFouls}
+          homeFoulsH1={homeFoulsH1}
+          awayFoulsH1={awayFoulsH1}
+          matchMvp={matchMvp}
+          matchDbId={matchDbId}
           onClose={() => setShowMatchClose(false)}
-          onConfirm={() => { setMatchLocked(true); setRunning(false); }}
+          onConfirm={(savedId) => {
+            setMatchLocked(true);
+            setRunning(false);
+            if (savedId) setMatchDbId(savedId);
+            setShowMatchClose(false);
+          }}
         />
       )}
     </div>
