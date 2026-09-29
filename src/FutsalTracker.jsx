@@ -487,26 +487,31 @@ function CardStrip({ cards, players, allPlayers, align = "left", onEdit, onDelet
 }
 
 // ── Foul controls row ─────────────────────────────────────────────────────────
-function FoulControls({ fouls, onChange, align = "left" }) {
+function FoulControls({ fouls, onChange, align = "left", foulsH1 = null }) {
   return (
-    <div className={`flex items-center gap-2 ${align === "right" ? "flex-row-reverse" : ""}`}>
-      <FoulIndicator count={fouls} />
-      <div className="flex items-center gap-1 ml-1">
-        <button
-          onClick={() => onChange(-1)}
-          disabled={fouls === 0}
-          className="w-6 h-6 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-30 disabled:cursor-not-allowed text-white text-sm font-bold transition-all active:scale-90 flex items-center justify-center"
-        >
-          −
-        </button>
-        <span className="font-mono text-sm text-white w-4 text-center">{fouls}</span>
-        <button
-          onClick={() => onChange(1)}
-          disabled={fouls >= 8}
-          className="w-6 h-6 rounded bg-red-800 hover:bg-red-600 disabled:opacity-30 disabled:cursor-not-allowed text-white text-sm font-bold transition-all active:scale-90 flex items-center justify-center"
-        >
-          +
-        </button>
+    <div className={`flex flex-col gap-1 ${align === "right" ? "items-end" : "items-start"}`}>
+      {foulsH1 !== null && (
+        <div className={`text-[10px] text-gray-500 ${align === "right" ? "text-right" : ""}`}>
+          1. pol: <span className="text-gray-400 font-semibold">{foulsH1}/8</span>
+          <span className="mx-1 text-gray-700">·</span>
+          2. pol: <span className="text-yellow-400 font-semibold">{fouls}/8</span>
+        </div>
+      )}
+      <div className={`flex items-center gap-2 ${align === "right" ? "flex-row-reverse" : ""}`}>
+        <FoulIndicator count={fouls} />
+        <div className="flex items-center gap-1 ml-1">
+          <button
+            onClick={() => onChange(-1)}
+            disabled={fouls === 0}
+            className="w-6 h-6 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-30 disabled:cursor-not-allowed text-white text-sm font-bold transition-all active:scale-90 flex items-center justify-center"
+          >−</button>
+          <span className="font-mono text-sm text-white w-4 text-center">{fouls}</span>
+          <button
+            onClick={() => onChange(1)}
+            disabled={fouls >= 8}
+            className="w-6 h-6 rounded bg-red-800 hover:bg-red-600 disabled:opacity-30 disabled:cursor-not-allowed text-white text-sm font-bold transition-all active:scale-90 flex items-center justify-center"
+          >+</button>
+        </div>
       </div>
     </div>
   );
@@ -737,7 +742,7 @@ function TeamSelector({ side, teams, selectedTeam, onSelectTeam, onLigaUpload, l
 
 function TeamPanel({
   side, teamName, onTeamNameChange, players, onPlayerUpdate,
-  onGoal, onCard, fouls, onFoulChange, goals, cards,
+  onGoal, onCard, fouls, onFoulChange, foulsH1, goals, cards,
   onEditGoal, onDeleteGoal, onEditCard, onDeleteCard, onImportRoster,
   ligaTeams, onLigaUpload, ligaLoaded, selectedTeam, onSelectTeam,
 }) {
@@ -779,7 +784,7 @@ function TeamPanel({
         <p className={`text-[10px] uppercase tracking-[0.15em] text-gray-500 mb-1.5 ${isLeft ? "" : "text-right"}`}>
           Team Fouls
         </p>
-        <FoulControls fouls={fouls} onChange={onFoulChange} align={isLeft ? "left" : "right"} />
+        <FoulControls fouls={fouls} onChange={onFoulChange} align={isLeft ? "left" : "right"} foulsH1={foulsH1} />
       </div>
 
       {/* Roster */}
@@ -975,7 +980,8 @@ function MatchTimeline({ homeGoals, awayGoals, homeCards, awayCards,
 
 // ── PDF Generator ─────────────────────────────────────────────────────────────
 async function generatePDF({ homeTeam, awayTeam, homePlayers, awayPlayers,
-  homeGoals, awayGoals, homeCards, awayCards, homeFouls, awayFouls, matchMvp }) {
+  homeGoals, awayGoals, homeCards, awayCards,
+  homeFouls, awayFouls, homeFoulsH1, awayFoulsH1, matchMvp }) {
 
   // Učitaj jsPDF
   const JsPDF = await new Promise((resolve, reject) => {
@@ -1148,8 +1154,14 @@ async function generatePDF({ homeTeam, awayTeam, homePlayers, awayPlayers,
   doc.text("–", W / 2, 43, { align: "center" });
   doc.setFontSize(7);
   doc.setTextColor(140, 140, 140);
-  doc.text(`Fauli: ${homeFouls}/8`, W / 2 - 18, 44, { align: "right" });
-  doc.text(`Fauli: ${awayFouls}/8`, W / 2 + 18, 44, { align: "left" });
+  const homeFoulStr = homeFoulsH1 !== null
+    ? `P1: ${homeFoulsH1}/8  P2: ${homeFouls}/8`
+    : `Fauli: ${homeFouls}/8`;
+  const awayFoulStr = awayFoulsH1 !== null
+    ? `P1: ${awayFoulsH1}/8  P2: ${awayFouls}/8`
+    : `Fauli: ${awayFouls}/8`;
+  doc.text(homeFoulStr, W / 2 - 18, 44, { align: "right" });
+  doc.text(awayFoulStr, W / 2 + 18, 44, { align: "left" });
 
   // ── TWO COLUMNS
   let yLeft = 52, yRight = 52;
@@ -1373,6 +1385,8 @@ export default function FutsalTracker() {
   const [awayCards, setAwayCards] = useState(s?.awayCards ?? []);
   const [homeFouls, setHomeFouls] = useState(s?.homeFouls ?? 0);
   const [awayFouls, setAwayFouls] = useState(s?.awayFouls ?? 0);
+  const [homeFoulsH1, setHomeFoulsH1] = useState(s?.homeFoulsH1 ?? null);
+  const [awayFoulsH1, setAwayFoulsH1] = useState(s?.awayFoulsH1 ?? null);
   const [matchMvp, setMatchMvp] = useState(s?.matchMvp ?? "");
   const [restoredMsg, setRestoredMsg] = useState(s ? "Meč učitan iz memorije" : "");
 
@@ -1400,11 +1414,11 @@ export default function FutsalTracker() {
     saveMatchToStorage({
       secs, half, halfDuration, homeTeam, awayTeam, homePlayers, awayPlayers,
       homeGoals, awayGoals, homeCards, awayCards, homeFouls, awayFouls,
-      matchMvp, matchLocked,
+      homeFoulsH1, awayFoulsH1, matchMvp, matchLocked,
     });
   }, [secs, half, halfDuration, homeTeam, awayTeam, homePlayers, awayPlayers,
       homeGoals, awayGoals, homeCards, awayCards, homeFouls, awayFouls,
-      matchMvp, matchLocked]);
+      homeFoulsH1, awayFoulsH1, matchMvp, matchLocked]);
 
   // Hide "restored" message after a few seconds
   useEffect(() => {
@@ -1569,7 +1583,7 @@ export default function FutsalTracker() {
       await generatePDF({
         homeTeam, awayTeam, homePlayers, awayPlayers,
         homeGoals, awayGoals, homeCards, awayCards,
-        homeFouls, awayFouls, matchMvp,
+        homeFouls, awayFouls, homeFoulsH1, awayFoulsH1, matchMvp,
       });
       setPdfMsg("Downloaded ✓");
       setTimeout(() => setPdfMsg(""), 3000);
@@ -1596,6 +1610,8 @@ export default function FutsalTracker() {
     setAwayCards([]);
     setHomeFouls(0);
     setAwayFouls(0);
+    setHomeFoulsH1(null);
+    setAwayFoulsH1(null);
     setMatchMvp("");
     setPdfMsg("");
     setShowNewMatchConfirm(false);
@@ -1834,6 +1850,10 @@ export default function FutsalTracker() {
             <button
               onClick={() => {
                 if (half === 1) {
+                  setHomeFoulsH1(homeFouls);
+                  setAwayFoulsH1(awayFouls);
+                  setHomeFouls(0);
+                  setAwayFouls(0);
                   setRunning(false);
                   setSecs(halfDuration);
                   setHalf(2);
@@ -1891,6 +1911,7 @@ export default function FutsalTracker() {
             onCard={(p, t) => recordCard("home", p, t)}
             fouls={homeFouls}
             onFoulChange={(d) => changeFoul("home", d)}
+            foulsH1={homeFoulsH1}
             goals={homeGoals}
             cards={homeCards}
             onEditGoal={(idx, updated) => editGoal("home", idx, updated)}
@@ -1926,15 +1947,21 @@ export default function FutsalTracker() {
           <div className="mt-auto pt-4 border-t border-gray-800 grid grid-cols-2 gap-3 text-center">
             <div>
               <div className="text-red-400 font-black text-xl">
-                {homeFouls}<span className="text-gray-600 font-normal text-sm">/5</span>
+                {homeFouls}<span className="text-gray-600 font-normal text-sm">/8</span>
               </div>
-              <div className="text-[10px] uppercase tracking-widest text-gray-500 mt-0.5 truncate">{homeTeam} Fouls</div>
+              {homeFoulsH1 !== null && (
+                <div className="text-[10px] text-gray-600 mt-0.5">P1: {homeFoulsH1} · P2: {homeFouls}</div>
+              )}
+              <div className="text-[10px] uppercase tracking-widest text-gray-500 mt-0.5 truncate">{homeTeam} Fauli</div>
             </div>
             <div>
               <div className="text-red-400 font-black text-xl">
-                {awayFouls}<span className="text-gray-600 font-normal text-sm">/5</span>
+                {awayFouls}<span className="text-gray-600 font-normal text-sm">/8</span>
               </div>
-              <div className="text-[10px] uppercase tracking-widest text-gray-500 mt-0.5 truncate">{awayTeam} Fouls</div>
+              {awayFoulsH1 !== null && (
+                <div className="text-[10px] text-gray-600 mt-0.5">P1: {awayFoulsH1} · P2: {awayFouls}</div>
+              )}
+              <div className="text-[10px] uppercase tracking-widest text-gray-500 mt-0.5 truncate">{awayTeam} Fauli</div>
             </div>
             {/* Card summary */}
             <div className="col-span-2 flex justify-center gap-6 pt-2 border-t border-gray-800">
@@ -2022,6 +2049,7 @@ export default function FutsalTracker() {
             onCard={(p, t) => recordCard("away", p, t)}
             fouls={awayFouls}
             onFoulChange={(d) => changeFoul("away", d)}
+            foulsH1={awayFoulsH1}
             goals={awayGoals}
             cards={awayCards}
             onEditGoal={(idx, updated) => editGoal("away", idx, updated)}
