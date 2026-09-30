@@ -1449,6 +1449,164 @@ function MatchCloseModal({ homeTeam, awayTeam, homeGoals, awayGoals,
   );
 }
 
+// ── History Page ──────────────────────────────────────────────────────────────
+function HistoryPage({ onBack }) {
+  const [mecevi, setMecevi] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [selected, setSelected] = useState(null);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    supabaseFetch("mecevi", "order=datum.desc&limit=100")
+      .then((data) => { setMecevi(data); setLoading(false); })
+      .catch((e) => { setError(e.message); setLoading(false); });
+  }, []);
+
+  const filtered = mecevi.filter((m) => {
+    const q = search.toLowerCase();
+    return !q || m.home_tim?.toLowerCase().includes(q) || m.away_tim?.toLowerCase().includes(q);
+  });
+
+  const formatDate = (iso) => {
+    const d = new Date(iso);
+    return d.toLocaleDateString("sr", { day: "2-digit", month: "2-digit", year: "numeric" }) +
+      " " + d.toLocaleTimeString("sr", { hour: "2-digit", minute: "2-digit" });
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-white flex flex-col"
+      style={{ fontFamily: "'Inter','Segoe UI',system-ui,sans-serif" }}>
+
+      {/* Header */}
+      <header className="flex items-center justify-between px-4 py-3 bg-gray-900 border-b border-gray-800 shrink-0">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-2 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-bold rounded-lg transition-all active:scale-95"
+        >
+          ← Nazad
+        </button>
+        <span className="text-yellow-400 font-black tracking-[0.2em] uppercase text-sm">Istorija mečeva</span>
+        <span className="text-gray-600 text-xs">{mecevi.length} mečeva</span>
+      </header>
+
+      <div className="flex-1 max-w-3xl mx-auto w-full p-4 flex flex-col gap-4">
+        {/* Search */}
+        <input
+          type="text"
+          placeholder="Pretraži po timu..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full bg-gray-900 border border-gray-700 text-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-yellow-500 transition-all placeholder-gray-600"
+        />
+
+        {/* Loading / Error */}
+        {loading && (
+          <div className="text-center text-gray-500 py-12">
+            <div className="text-3xl mb-2 animate-pulse">⏳</div>
+            <p className="text-sm">Učitavanje...</p>
+          </div>
+        )}
+        {error && (
+          <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-4 text-red-400 text-sm text-center">
+            Greška: {error}
+          </div>
+        )}
+
+        {/* List */}
+        {!loading && !error && filtered.length === 0 && (
+          <div className="text-center text-gray-600 py-12">
+            <div className="text-4xl mb-2">📭</div>
+            <p className="text-sm">Nema mečeva u bazi</p>
+          </div>
+        )}
+
+        {!loading && filtered.map((m) => (
+          <div
+            key={m.id}
+            onClick={() => setSelected(selected?.id === m.id ? null : m)}
+            className="bg-gray-900 border border-gray-800 hover:border-yellow-500/40 rounded-2xl p-4 cursor-pointer transition-all"
+          >
+            {/* Match header */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] text-gray-500 mb-1">{formatDate(m.datum)}</div>
+                <div className="flex items-center gap-3">
+                  <span className="text-white font-black text-sm truncate">{m.home_tim}</span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-white font-black text-xl tabular-nums">{m.home_golovi}</span>
+                    <span className="text-gray-600 font-bold">–</span>
+                    <span className="text-white font-black text-xl tabular-nums">{m.away_golovi}</span>
+                  </div>
+                  <span className="text-white font-black text-sm truncate">{m.away_tim}</span>
+                </div>
+              </div>
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-widest ${
+                  m.status === "zakljucan"
+                    ? "bg-emerald-900/40 text-emerald-400 border border-emerald-700/40"
+                    : "bg-gray-800 text-gray-500"
+                }`}>
+                  {m.status === "zakljucan" ? "✓ Zaključan" : m.status}
+                </span>
+                {m.mvp && (
+                  <span className="text-[10px] text-yellow-400">⭐ {m.mvp}</span>
+                )}
+              </div>
+            </div>
+
+            {/* Fauli */}
+            <div className="flex gap-4 mt-2 text-[10px] text-gray-600">
+              <span>{m.home_tim}: {m.home_fauli_p1}F P1 · {m.home_fauli_p2}F P2</span>
+              <span>·</span>
+              <span>{m.away_tim}: {m.away_fauli_p1}F P1 · {m.away_fauli_p2}F P2</span>
+            </div>
+
+            {/* Detalji — expandovani */}
+            {selected?.id === m.id && m.detalji && (
+              <div className="mt-4 pt-4 border-t border-gray-800 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {[
+                  { label: m.home_tim, goals: m.detalji.homeGoals || [], cards: m.detalji.homeCards || [], players: m.detalji.homePlayers || [] },
+                  { label: m.away_tim, goals: m.detalji.awayGoals || [], cards: m.detalji.awayCards || [], players: m.detalji.awayPlayers || [] },
+                ].map((team) => (
+                  <div key={team.label}>
+                    <div className="text-[10px] font-black uppercase tracking-widest text-yellow-400 mb-2">{team.label}</div>
+
+                    {/* Igrači */}
+                    {team.players.filter(p => p.name || p.num).map((p, i) => {
+                      const pg = team.goals.filter(g => g.playerId === p.id);
+                      const pc = team.cards.filter(c => c.playerId === p.id);
+                      return (
+                        <div key={i} className={`flex items-center gap-2 py-1 text-xs border-b border-gray-800/50 ${p.played ? "" : "opacity-40"}`}>
+                          <span className="text-gray-600 w-5 text-center font-mono text-[10px]">{p.num || "–"}</span>
+                          <span className={`flex-1 ${pg.length ? "text-white font-semibold" : "text-gray-400"}`}>{p.name || "–"}</span>
+                          {pg.map((g, gi) => (
+                            <span key={gi} className="text-emerald-400 text-[10px]">⚽{g.clockMin}'</span>
+                          ))}
+                          {pc.map((c, ci) => (
+                            <span key={ci} className={`text-[10px] font-bold ${c.type === "red" ? "text-red-400" : "text-yellow-400"}`}>
+                              {c.type === "red" ? "🟥" : "🟨"}{c.clockMin}'
+                            </span>
+                          ))}
+                          {p.played && <span className="text-emerald-600 text-[10px]">✓</span>}
+                        </div>
+                      );
+                    })}
+
+                    {team.goals.length === 0 && team.cards.length === 0 && (
+                      <p className="text-gray-700 text-[10px] italic">Nema golova ni kartona</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── App Root ──────────────────────────────────────────────────────────────────
 export default function FutsalTracker() {
   const saved = useRef(loadMatchFromStorage());
@@ -1809,6 +1967,10 @@ export default function FutsalTracker() {
 
   const pdfEnabled = !running && !pdfBusy;
   const isFullTime = secs === 0;
+  const [page, setPage] = useState("tracker");
+
+  // Prikaži stranicu istorije
+  if (page === "history") return <HistoryPage onBack={() => setPage("tracker")} />;
 
   return (
     <div className="min-h-screen bg-gray-950 text-white flex flex-col select-none"
@@ -1857,6 +2019,13 @@ export default function FutsalTracker() {
           >
             <span>💾</span>
             <span>Sačuvaj</span>
+          </button>
+          <button
+            onClick={() => setPage("history")}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold tracking-wide transition-all bg-gray-700 hover:bg-gray-600 active:scale-95 text-gray-200"
+          >
+            <span>📋</span>
+            <span>Istorija</span>
           </button>
           <button
             onClick={() => setShowNewMatchConfirm(true)}
@@ -2178,18 +2347,24 @@ export default function FutsalTracker() {
         >
           {pdfBusy ? "Generating…" : pdfMsg || "📄 Generate PDF Report"}
         </button>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="py-2.5 rounded-xl text-sm font-bold tracking-widest transition-all bg-gray-700 hover:bg-gray-600 text-gray-200 active:scale-95"
+            className="py-2.5 rounded-xl text-xs font-bold tracking-widest transition-all bg-gray-700 hover:bg-gray-600 text-gray-200 active:scale-95"
           >
             📂 Učitaj
           </button>
           <button
             onClick={handleExportJSON}
-            className="py-2.5 rounded-xl text-sm font-bold tracking-widest transition-all bg-gray-700 hover:bg-gray-600 text-gray-200 active:scale-95"
+            className="py-2.5 rounded-xl text-xs font-bold tracking-widest transition-all bg-gray-700 hover:bg-gray-600 text-gray-200 active:scale-95"
           >
             💾 Sačuvaj
+          </button>
+          <button
+            onClick={() => setPage("history")}
+            className="py-2.5 rounded-xl text-xs font-bold tracking-widest transition-all bg-gray-700 hover:bg-gray-600 text-gray-200 active:scale-95"
+          >
+            📋 Istorija
           </button>
         </div>
         <button

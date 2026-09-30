@@ -1,0 +1,18 @@
+name: Supabase Keepalive
+
+on:
+  schedule:
+    - cron: '0 9 */5 * *'  # Svaki 5. dan u 9:00 UTC
+  workflow_dispatch:       # Možeš i ručno da pokreneš
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase
+        run: |
+          curl -s -o /dev/null -w "%{http_code}" \
+            "https://ygkimzcbxdufthylhojs.supabase.co/rest/v1/mecevi?limit=1" \
+            -H "apikey: sb_publishable_2bBUQ9RCCPNRwqiopCBkbA_ovfkyaPW" \
+            -H "Authorization: Bearer sb_publishable_2bBUQ9RCCPNRwqiopCBkbA_ovfkyaPW"
+          echo "Ping uspešan"
