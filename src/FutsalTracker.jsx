@@ -1395,7 +1395,7 @@ function MatchCloseModal({ homeTeam, awayTeam, homeGoals, awayGoals,
           {!sent ? (
             <>
               <p className="text-gray-400 text-xs text-center leading-relaxed">
-                Klikom na <span className="text-yellow-400 font-bold">"Zaključi i pošalji"</span> meč se čuva u bazu i možeš ga pregledati u sekciji <span className="text-yellow-400 font-bold">Istorija</span>. Kapiten protivničke ekipe potom skenira QR kod i potvrđuje rezultat.
+                Klikom na <span className="text-yellow-400 font-bold">"Zaključi i pošalji"</span> meč se čuva u bazu i možeš ga pregledati u sekciji <span className="text-yellow-400 font-bold">Istorija</span>.
               </p>
               {error && <p className="text-red-400 text-xs text-center">{error}</p>}
               <div className="flex gap-3">
