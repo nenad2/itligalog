@@ -2013,22 +2013,6 @@ export default function FutsalTracker() {
             className="hidden"
           />
           <button
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold tracking-wide transition-all bg-gray-700 hover:bg-gray-600 active:scale-95 text-gray-200"
-            title="Učitaj meč iz JSON fajla"
-          >
-            <span>📂</span>
-            <span>Učitaj</span>
-          </button>
-          <button
-            onClick={handleExportJSON}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold tracking-wide transition-all bg-gray-700 hover:bg-gray-600 active:scale-95 text-gray-200"
-            title="Sačuvaj meč kao JSON fajl (bekap)"
-          >
-            <span>💾</span>
-            <span>Sačuvaj</span>
-          </button>
-          <button
             onClick={() => setPage("history")}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold tracking-wide transition-all bg-gray-700 hover:bg-gray-600 active:scale-95 text-gray-200"
           >
@@ -2355,26 +2339,12 @@ export default function FutsalTracker() {
         >
           {pdfBusy ? "Generating…" : pdfMsg || "📄 Generate PDF Report"}
         </button>
-        <div className="grid grid-cols-3 gap-2">
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="py-2.5 rounded-xl text-xs font-bold tracking-widest transition-all bg-gray-700 hover:bg-gray-600 text-gray-200 active:scale-95"
-          >
-            📂 Učitaj
-          </button>
-          <button
-            onClick={handleExportJSON}
-            className="py-2.5 rounded-xl text-xs font-bold tracking-widest transition-all bg-gray-700 hover:bg-gray-600 text-gray-200 active:scale-95"
-          >
-            💾 Sačuvaj
-          </button>
-          <button
+        <button
             onClick={() => setPage("history")}
-            className="py-2.5 rounded-xl text-xs font-bold tracking-widest transition-all bg-gray-700 hover:bg-gray-600 text-gray-200 active:scale-95"
+            className="w-full py-2.5 rounded-xl text-sm font-bold tracking-widest transition-all bg-gray-700 hover:bg-gray-600 text-gray-200 active:scale-95"
           >
-            📋 Istorija
+            📋 Istorija mečeva
           </button>
-        </div>
         <button
           onClick={() => setShowNewMatchConfirm(true)}
           className="w-full py-2.5 rounded-xl text-sm font-bold tracking-widest transition-all bg-gray-700 hover:bg-gray-600 text-gray-200 active:scale-95"
