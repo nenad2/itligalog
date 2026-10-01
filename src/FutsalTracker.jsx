@@ -855,17 +855,25 @@ function TeamPanel({
           </div>
         </div>
         <div>
-          {players.map((p) => (
-            <PlayerRow
-              key={p.id}
-              player={p}
-              goals={goals}
-              cards={cards}
-              onUpdate={onPlayerUpdate}
-              onGoal={() => onGoal(p)}
-              onCard={(player, type) => onCard(player, type)}
-            />
-          ))}
+          {[...players]
+            .sort((a, b) => {
+              // Aktivni igrači (played) idu gore, ostali dole
+              // Unutar svake grupe čuvamo originalni redosled
+              if (a.played && !b.played) return -1;
+              if (!a.played && b.played) return 1;
+              return 0;
+            })
+            .map((p) => (
+              <PlayerRow
+                key={p.id}
+                player={p}
+                goals={goals}
+                cards={cards}
+                onUpdate={onPlayerUpdate}
+                onGoal={() => onGoal(p)}
+                onCard={(player, type) => onCard(player, type)}
+              />
+            ))}
           {/* Dodaj igrača dinamički */}
           <button
             onClick={() => onPlayerUpdate({ ...makePlayer(), _new: true })}
