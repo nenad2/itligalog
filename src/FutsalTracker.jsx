@@ -2339,12 +2339,31 @@ export default function FutsalTracker() {
         >
           {pdfBusy ? "Generating…" : pdfMsg || "📄 Generate PDF Report"}
         </button>
-        <button
+        <div className="grid grid-cols-2 gap-2">
+          <button
             onClick={() => setPage("history")}
-            className="w-full py-2.5 rounded-xl text-sm font-bold tracking-widest transition-all bg-gray-700 hover:bg-gray-600 text-gray-200 active:scale-95"
+            className="py-2.5 rounded-xl text-xs font-bold tracking-widest transition-all bg-gray-700 hover:bg-gray-600 text-gray-200 active:scale-95"
           >
-            📋 Istorija mečeva
+            📋 Istorija
           </button>
+          {!matchLocked ? (
+            <button
+              onClick={() => setShowMatchClose(true)}
+              disabled={!homeTeam || !awayTeam}
+              className={`py-2.5 rounded-xl text-xs font-bold tracking-widest transition-all active:scale-95 ${
+                !homeTeam || !awayTeam
+                  ? "bg-gray-800 text-gray-600 cursor-not-allowed"
+                  : "bg-emerald-700 hover:bg-emerald-600 text-white"
+              }`}
+            >
+              ✓ Zaključi meč
+            </button>
+          ) : (
+            <span className="py-2.5 rounded-xl text-xs font-bold bg-emerald-900/40 border border-emerald-700/50 text-emerald-400 text-center">
+              ✓ Zaključan
+            </span>
+          )}
+        </div>
         <button
           onClick={() => setShowNewMatchConfirm(true)}
           className="w-full py-2.5 rounded-xl text-sm font-bold tracking-widest transition-all bg-gray-700 hover:bg-gray-600 text-gray-200 active:scale-95"
