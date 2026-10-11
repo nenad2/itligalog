@@ -1842,6 +1842,11 @@ export default function FutsalTracker() {
   };
 
   const handlePDF = async () => {
+    if (!homeTeam.trim() || !awayTeam.trim()) {
+      setPdfMsg("⚠ Unesi imena oba tima!");
+      setTimeout(() => setPdfMsg(""), 3000);
+      return;
+    }
     setPdfBusy(true);
     setPdfMsg("Building report…");
     try {
@@ -1973,7 +1978,7 @@ export default function FutsalTracker() {
     reader.readAsText(file);
   };
 
-  const pdfEnabled = !running && !pdfBusy;
+  const pdfEnabled = !running && !pdfBusy && !!homeTeam.trim() && !!awayTeam.trim();
   const isFullTime = secs === 0;
   const [page, setPage] = useState("tracker");
 
