@@ -792,6 +792,7 @@ function TeamPanel({
   onGoal, onCard, fouls, onFoulChange, foulsH1, goals, cards,
   onEditGoal, onDeleteGoal, onEditCard, onDeleteCard, onImportRoster,
   ligaTeams, onLigaUpload, ligaLoaded, selectedTeam, onSelectTeam,
+  timeouts, onTimeout, onDeleteTimeout, half,
 }) {
   const isLeft = side === "home";
   const playedPlayers = players.filter((p) => p.played && (p.num || p.name));
@@ -829,9 +830,54 @@ function TeamPanel({
       {/* Fouls */}
       <div>
         <p className={`text-[10px] uppercase tracking-[0.15em] text-gray-500 mb-1.5 ${isLeft ? "" : "text-right"}`}>
-          Team Fouls
+          Fauli
         </p>
         <FoulControls fouls={fouls} onChange={onFoulChange} align={isLeft ? "left" : "right"} foulsH1={foulsH1} />
+      </div>
+
+      {/* Timeout */}
+      <div>
+        <p className={`text-[10px] uppercase tracking-[0.15em] text-gray-500 mb-1.5 ${isLeft ? "" : "text-right"}`}>
+          Timeout
+        </p>
+        {(() => {
+          const halfKey = half === 1 ? "h1" : "h2";
+          const used = timeouts[halfKey];
+          const usedOther = half === 1 ? timeouts.h2 : timeouts.h1;
+          return (
+            <div className={`flex flex-col gap-1 ${isLeft ? "items-start" : "items-end"}`}>
+              {/* Dugme za timeout */}
+              <div className={`flex items-center gap-2 ${isLeft ? "" : "flex-row-reverse"}`}>
+                <button
+                  onClick={onTimeout}
+                  disabled={!!used}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest transition-all active:scale-95 ${
+                    used
+                      ? "bg-gray-800 text-gray-600 cursor-not-allowed"
+                      : "bg-blue-700 hover:bg-blue-600 text-white"
+                  }`}
+                  title={used ? `Timeout iskorišćen u ${used.clockMin}'` : "Zabeleži timeout"}
+                >
+                  <span>⏱</span>
+                  <span>{used ? `Iskorišćen ${used.clockMin}'` : `P${half} Timeout`}</span>
+                </button>
+                {used && (
+                  <button
+                    onClick={() => onDeleteTimeout(halfKey)}
+                    className="text-[10px] text-gray-700 hover:text-red-400 transition-colors"
+                    title="Obriši timeout"
+                  >✕</button>
+                )}
+              </div>
+              {/* Prikaz timeoutra iz drugog poluvremena ako postoji */}
+              {usedOther && (
+                <span className="text-[10px] text-gray-600">
+                  P{half === 1 ? 2 : 1}: {usedOther.clockMin}'
+                </span>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Roster */}
@@ -1043,7 +1089,8 @@ function MatchTimeline({ homeGoals, awayGoals, homeCards, awayCards,
 // ── PDF Generator ─────────────────────────────────────────────────────────────
 async function generatePDF({ homeTeam, awayTeam, homePlayers, awayPlayers,
   homeGoals, awayGoals, homeCards, awayCards,
-  homeFouls, awayFouls, homeFoulsH1, awayFoulsH1, matchMvp }) {
+  homeFouls, awayFouls, homeFoulsH1, awayFoulsH1,
+  homeTimeouts, awayTimeouts, matchMvp }) {
 
   // Učitaj jsPDF
   const JsPDF = await new Promise((resolve, reject) => {
@@ -1199,9 +1246,9 @@ async function generatePDF({ homeTeam, awayTeam, homePlayers, awayPlayers,
 
   // ── SCORE
   doc.setFillColor(240, 240, 240);
-  doc.rect(12, 26, W - 24, 20, "F");
+  doc.rect(12, 26, W - 24, 26, "F");
   doc.setDrawColor(200, 200, 200);
-  doc.rect(12, 26, W - 24, 20, "S");
+  doc.rect(12, 26, W - 24, 26, "S");
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
   doc.setTextColor(80, 80, 80);
@@ -1225,8 +1272,17 @@ async function generatePDF({ homeTeam, awayTeam, homePlayers, awayPlayers,
   doc.text(homeFoulStr, W / 2 - 18, 44, { align: "right" });
   doc.text(awayFoulStr, W / 2 + 18, 44, { align: "left" });
 
+  // Timeout info
+  const fmtTimeout = (t) => t ? `${t.clockMin}'` : "–";
+  const homeToStr = `TO: P1 ${fmtTimeout(homeTimeouts?.h1)}  P2 ${fmtTimeout(homeTimeouts?.h2)}`;
+  const awayToStr = `TO: P1 ${fmtTimeout(awayTimeouts?.h1)}  P2 ${fmtTimeout(awayTimeouts?.h2)}`;
+  doc.setFontSize(6.5);
+  doc.setTextColor(120, 120, 120);
+  doc.text(homeToStr, W / 2 - 18, 48, { align: "right" });
+  doc.text(awayToStr, W / 2 + 18, 48, { align: "left" });
+
   // ── TWO COLUMNS
-  let yLeft = 52, yRight = 52;
+  let yLeft = 58, yRight = 58;
 
   // Home header
   yLeft = sectionHeader(col1, colW, homeTeam, yLeft);
@@ -1645,6 +1701,9 @@ export default function FutsalTracker() {
   const [awayFouls, setAwayFouls] = useState(s?.awayFouls ?? 0);
   const [homeFoulsH1, setHomeFoulsH1] = useState(s?.homeFoulsH1 ?? null);
   const [awayFoulsH1, setAwayFoulsH1] = useState(s?.awayFoulsH1 ?? null);
+  // Timeout: { h1: null|{clockMin, elapsedSecs}, h2: null|{clockMin, elapsedSecs} }
+  const [homeTimeouts, setHomeTimeouts] = useState(s?.homeTimeouts ?? { h1: null, h2: null });
+  const [awayTimeouts, setAwayTimeouts] = useState(s?.awayTimeouts ?? { h1: null, h2: null });
   const [matchMvp, setMatchMvp] = useState(s?.matchMvp ?? "");
   const [restoredMsg, setRestoredMsg] = useState(s ? "Meč učitan iz memorije" : "");
 
@@ -1672,11 +1731,11 @@ export default function FutsalTracker() {
     saveMatchToStorage({
       secs, half, halfDuration, homeTeam, awayTeam, homePlayers, awayPlayers,
       homeGoals, awayGoals, homeCards, awayCards, homeFouls, awayFouls,
-      homeFoulsH1, awayFoulsH1, matchMvp, matchLocked, matchDbId,
+      homeFoulsH1, awayFoulsH1, homeTimeouts, awayTimeouts, matchMvp, matchLocked, matchDbId,
     });
   }, [secs, half, halfDuration, homeTeam, awayTeam, homePlayers, awayPlayers,
       homeGoals, awayGoals, homeCards, awayCards, homeFouls, awayFouls,
-      homeFoulsH1, awayFoulsH1, matchMvp, matchLocked, matchDbId]);
+      homeFoulsH1, awayFoulsH1, homeTimeouts, awayTimeouts, matchMvp, matchLocked, matchDbId]);
 
   // Hide "restored" message after a few seconds
   useEffect(() => {
@@ -1813,6 +1872,23 @@ export default function FutsalTracker() {
     else setAwayFouls((f) => clamp(f + delta));
   };
 
+  const recordTimeout = (side) => {
+    const elapsed = halfDurationRef.current - secsRef.current;
+    const minuteInHalf = Math.ceil(elapsed / 60) || 1;
+    const cumulativeMin = halfRef.current === 1
+      ? minuteInHalf
+      : Math.floor(halfDurationRef.current / 60) + minuteInHalf;
+    const entry = { clockMin: cumulativeMin, elapsedSecs: elapsed, half: halfRef.current };
+    const key = halfRef.current === 1 ? "h1" : "h2";
+    if (side === "home") setHomeTimeouts((t) => ({ ...t, [key]: entry }));
+    else setAwayTimeouts((t) => ({ ...t, [key]: entry }));
+  };
+
+  const deleteTimeout = (side, halfKey) => {
+    if (side === "home") setHomeTimeouts((t) => ({ ...t, [halfKey]: null }));
+    else setAwayTimeouts((t) => ({ ...t, [halfKey]: null }));
+  };
+
   // Goal edit / delete
   const editGoal = (side, idx, updated) => {
     if (side === "home") setHomeGoals((g) => g.map((item, i) => i === idx ? updated : item));
@@ -1853,7 +1929,8 @@ export default function FutsalTracker() {
       await generatePDF({
         homeTeam, awayTeam, homePlayers, awayPlayers,
         homeGoals, awayGoals, homeCards, awayCards,
-        homeFouls, awayFouls, homeFoulsH1, awayFoulsH1, matchMvp,
+        homeFouls, awayFouls, homeFoulsH1, awayFoulsH1,
+        homeTimeouts, awayTimeouts, matchMvp,
       });
       setPdfMsg("Downloaded ✓");
       setTimeout(() => setPdfMsg(""), 3000);
@@ -1882,6 +1959,8 @@ export default function FutsalTracker() {
     setAwayFouls(0);
     setHomeFoulsH1(null);
     setAwayFoulsH1(null);
+    setHomeTimeouts({ h1: null, h2: null });
+    setAwayTimeouts({ h1: null, h2: null });
     setMatchMvp("");
     setPdfMsg("");
     setShowNewMatchConfirm(false);
@@ -2178,6 +2257,10 @@ export default function FutsalTracker() {
             fouls={homeFouls}
             onFoulChange={(d) => changeFoul("home", d)}
             foulsH1={homeFoulsH1}
+            timeouts={homeTimeouts}
+            onTimeout={() => recordTimeout("home")}
+            onDeleteTimeout={(k) => deleteTimeout("home", k)}
+            half={half}
             goals={homeGoals}
             cards={homeCards}
             onEditGoal={(idx, updated) => editGoal("home", idx, updated)}
@@ -2316,6 +2399,10 @@ export default function FutsalTracker() {
             fouls={awayFouls}
             onFoulChange={(d) => changeFoul("away", d)}
             foulsH1={awayFoulsH1}
+            timeouts={awayTimeouts}
+            onTimeout={() => recordTimeout("away")}
+            onDeleteTimeout={(k) => deleteTimeout("away", k)}
+            half={half}
             goals={awayGoals}
             cards={awayCards}
             onEditGoal={(idx, updated) => editGoal("away", idx, updated)}
