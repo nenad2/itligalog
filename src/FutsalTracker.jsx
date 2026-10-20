@@ -1513,6 +1513,185 @@ function MatchCloseModal({ homeTeam, awayTeam, homeGoals, awayGoals,
   );
 }
 
+// ── Help Page ─────────────────────────────────────────────────────────────────
+function HelpPage({ onBack }) {
+  const sections = [
+    {
+      icon: "📋",
+      title: "Učitavanje ekipa",
+      items: [
+        "Ekipe se učitavaju iz Excel fajla (.xlsx) postavljenog na Google Drive.",
+        "Fajl mora biti javno dostupan — Google Drive → Podeli → 'Svi koji imaju link mogu da vide'.",
+        "Svaki sheet u Excel fajlu predstavlja jednu ekipu, a naziv sheeta je naziv ekipe.",
+        "Svaki red u sheetu je jedan igrač — prva kolona je ime i prezime igrača.",
+        "Klikni dugme 'Učitaj ekipe (Excel)' na vrhu panela ekipe, nalepi Google Drive link i klikni Učitaj.",
+        "Nakon učitavanja, iz padajućeg menija izaberi ekipu za Home i Away.",
+        "Ekipa se pamti u browseru — sledeći put nije potrebno ponovo učitavati fajl.",
+      ],
+    },
+    {
+      icon: "👤",
+      title: "Igrači",
+      items: [
+        "Nakon izbora ekipe, lista igrača se automatski popunjava.",
+        "Svaki igrač ima polje za broj dresa (opciono) i ime.",
+        "Klikni zelenu kvačicu (☐) pored igrača da označiš da je igrao taj meč — igrač se pomera na vrh liste.",
+        "Ako igrač nije na spisku, klikni '+ Dodaj igrača' na dnu liste.",
+        "Broj igrača nije ograničen — app podržava ekipe sa 25+ igrača.",
+      ],
+    },
+    {
+      icon: "⏱",
+      title: "Sat i vreme",
+      items: [
+        "Podrazumevano vreme poluvremena je 20 minuta — sat odbrojava unazad.",
+        "Klikni '✏ Edit' da postaviš drugačije vreme (npr. 15 ili 25 minuta).",
+        "Dugme '▶ START' pokreće sat, '⏸ PAUSE' ga pauzira.",
+        "Dugme '↺ Reset' vraća sat na početno vreme poluvremena.",
+        "Sat nastavlja da radi i kada se ekran telefona zaključa.",
+        "Na početku drugog poluvremena klikni '→ Počni 2. poluvreme' — sat se resetuje, fauli se resetuju.",
+      ],
+    },
+    {
+      icon: "⚽",
+      title: "Golovi",
+      items: [
+        "Klikni dugme ⚽ pored igrača koji je dao gol.",
+        "App automatski beleži tačan minut sa sata u trenutku klika.",
+        "Rezultat se automatski ažurira.",
+        "Golovi se prikazuju ispod spiska igrača i u centralnoj koloni (Match Timeline).",
+        "Greškom unet gol možeš da izmeniš ili obrišeš — pređi mišem preko gola da se pojave dugmići ✏ i ✕.",
+        "U drugom poluvremenu minut se nastavlja kumulativno (npr. 2×20 min → 2. poluvreme počinje od 21').",
+      ],
+    },
+    {
+      icon: "🟨",
+      title: "Kartoni",
+      items: [
+        "Pored svakog igrača postoje dva dugmića — žuti i crveni karton.",
+        "Klikni odgovarajući karton, app beleži minut automatski.",
+        "Ako igrač dobije drugi žuti karton, crveni se automatski dodaje (oznaka 2Ž→C).",
+        "Igrač sa crvenim kartonom dobija zatamnjeni red i ne može više da daje golove.",
+        "Greškom uneti karton možeš obrisati — pređi mišem i klikni ✕.",
+        "Brisanjem žutog kartona koji je izazvao crveni, automatski se briše i crveni.",
+      ],
+    },
+    {
+      icon: "🔴",
+      title: "Fauli i Timeout",
+      items: [
+        "Svaka ekipa ima tracker faula sa 8 tačkica — prvih 5 žute (normalni), poslednjih 3 crvene (bonus).",
+        "Klikni '+' da dodaš faul, '−' da ukloniš greškom uneti faul.",
+        "Na početku 2. poluvremena fauli se automatski resetuju, a fauli iz 1. poluvremena se pamte.",
+        "Svaka ekipa ima pravo na 1 timeout po poluvremenu.",
+        "Klikni 'P1 Timeout' ili 'P2 Timeout' da zabeležiš timeout — dugme posivi nakon upotrebe.",
+        "Greškom uneti timeout brišeš klikom na ✕ pored njega.",
+      ],
+    },
+    {
+      icon: "⭐",
+      title: "Igrač utakmice (MVP)",
+      items: [
+        "U centralnoj koloni, ispod statistike, nalazi se padajući meni za izbor igrača utakmice.",
+        "Meni prikazuje samo igrače koji su označeni kao aktivni (stiklirani).",
+        "MVP se prikazuje u PDF izveštaju u posebnoj sekciji.",
+      ],
+    },
+    {
+      icon: "📄",
+      title: "PDF izveštaj",
+      items: [
+        "Dugme 'PDF Report' nalazi se u zaglavlju (desktop) i na dnu (mobilni).",
+        "PDF je dostupan samo kada sat nije pokrenut i kada su unesena oba naziva timova.",
+        "PDF sadrži: rezultat, faule po poluvremenu, timeoutove, roster sa golovima i kartonima, ko je igrao, MVP.",
+        "PDF se direktno skida na uređaj.",
+      ],
+    },
+    {
+      icon: "✓",
+      title: "Zaključivanje meča",
+      items: [
+        "Dugme 'Zaključi meč' nalazi se u zaglavlju (desktop) i na dnu (mobilni).",
+        "Dostupno je samo kada su unesena oba naziva timova.",
+        "Klikom se meč šalje u bazu podataka i možeš ga pregledati u sekciji Istorija.",
+        "Nakon zaključivanja, dugme postaje zeleno 'Meč zaključan' — meč je sačuvan.",
+      ],
+    },
+    {
+      icon: "📋",
+      title: "Istorija mečeva",
+      items: [
+        "Klikni 'Istorija' u zaglavlju da vidiš sve odigrane mečeve.",
+        "Mečevi su sortirani od najnovijeg ka najstarijem.",
+        "Klikni na meč da vidiš detalje — igrače, golove, kartone.",
+        "Možeš pretraživati mečeve po nazivu ekipe.",
+      ],
+    },
+    {
+      icon: "💾",
+      title: "Automatsko čuvanje",
+      items: [
+        "App automatski čuva trenutni meč u browseru (localStorage).",
+        "Ako slučajno zatvoriš tab ili refresuješ stranicu, podaci se vraćaju automatski.",
+        "Zelena traka 'Meč učitan iz memorije' potvrđuje da su podaci vraćeni.",
+        "Dugme '🔄 Novi meč' briše sve podatke i počinje od nule — app traži potvrdu pre brisanja.",
+      ],
+    },
+  ];
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-white flex flex-col"
+      style={{ fontFamily: "'Inter','Segoe UI',system-ui,sans-serif" }}>
+      {/* Header */}
+      <header className="flex items-center justify-between px-4 py-3 bg-gray-900 border-b border-gray-800 shrink-0">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-2 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-bold rounded-lg transition-all active:scale-95"
+        >
+          ← Nazad
+        </button>
+        <span className="text-yellow-400 font-black tracking-[0.2em] uppercase text-sm">Uputstvo za korišćenje</span>
+        <span className="text-gray-700 text-xs">IT LIGA++ NIŠ</span>
+      </header>
+
+      {/* Content */}
+      <div className="flex-1 max-w-3xl mx-auto w-full p-4 pb-10 flex flex-col gap-4">
+        {/* Intro */}
+        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 text-center">
+          <div className="text-4xl mb-2">⚽</div>
+          <h1 className="text-white font-black text-lg uppercase tracking-widest mb-1">IT LIGA++ NIŠ</h1>
+          <p className="text-gray-400 text-sm leading-relaxed">
+            Aplikacija za praćenje statistike futsal mečeva u realnom vremenu. Ovde možeš pronaći sve što ti je potrebno za korišćenje.
+          </p>
+        </div>
+
+        {/* Sections */}
+        {sections.map((sec, i) => (
+          <div key={i} className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+            <div className="flex items-center gap-3 px-5 py-3 bg-gray-800/60 border-b border-gray-800">
+              <span className="text-xl">{sec.icon}</span>
+              <span className="text-white font-black text-sm uppercase tracking-widest">{sec.title}</span>
+            </div>
+            <ul className="px-5 py-4 flex flex-col gap-2">
+              {sec.items.map((item, j) => (
+                <li key={j} className="flex items-start gap-2.5 text-sm text-gray-300 leading-relaxed">
+                  <span className="text-yellow-500 shrink-0 mt-0.5 font-bold">·</span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+
+        {/* Footer note */}
+        <div className="text-center text-gray-700 text-xs pb-2">
+          IT LIGA++ NIŠ · Aplikacija za futsal statistiku
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── History Page ──────────────────────────────────────────────────────────────
 function HistoryPage({ onBack }) {
   const [mecevi, setMecevi] = useState([]);
@@ -2063,6 +2242,7 @@ export default function FutsalTracker() {
 
   // Prikaži stranicu istorije
   if (page === "history") return <HistoryPage onBack={() => setPage("tracker")} />;
+  if (page === "help") return <HelpPage onBack={() => setPage("tracker")} />;
 
   return (
     <div className="min-h-screen bg-gray-950 text-white flex flex-col select-none"
@@ -2096,6 +2276,13 @@ export default function FutsalTracker() {
             onChange={handleImportJSON}
             className="hidden"
           />
+          <button
+            onClick={() => setPage("help")}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold tracking-wide transition-all bg-gray-700 hover:bg-gray-600 active:scale-95 text-gray-200"
+          >
+            <span>❓</span>
+            <span>Uputstvo</span>
+          </button>
           <button
             onClick={() => setPage("history")}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold tracking-wide transition-all bg-gray-700 hover:bg-gray-600 active:scale-95 text-gray-200"
@@ -2456,12 +2643,20 @@ export default function FutsalTracker() {
             </span>
           )}
         </div>
-        <button
-          onClick={() => setShowNewMatchConfirm(true)}
-          className="w-full py-2.5 rounded-xl text-sm font-bold tracking-widest transition-all bg-gray-700 hover:bg-gray-600 text-gray-200 active:scale-95"
-        >
-          🔄 Novi meč
-        </button>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setPage("help")}
+            className="py-2.5 rounded-xl text-xs font-bold tracking-widest transition-all bg-gray-700 hover:bg-gray-600 text-gray-200 active:scale-95"
+          >
+            ❓ Uputstvo
+          </button>
+          <button
+            onClick={() => setShowNewMatchConfirm(true)}
+            className="py-2.5 rounded-xl text-xs font-bold tracking-widest transition-all bg-gray-700 hover:bg-gray-600 text-gray-200 active:scale-95"
+          >
+            🔄 Novi meč
+          </button>
+        </div>
         {running && (
           <p className="text-center text-[10px] text-gray-600">
             Pauziraj sat za PDF izveštaj
