@@ -48,26 +48,38 @@ function clearMatchFromStorage() {
   }
 }
 
-// ── Liga Excel file persistence ───────────────────────────────────────────────
-const LIGA_STORAGE_KEY = "futsal-tracker-liga-v1";
+// ── Lige — javno dostupni Excel / Google Sheets fajlovi ───────────────────────
+// Ovde zalepi linkove (Google Drive "Svi koji imaju link" ili Google Sheets).
+// Svaki sheet u fajlu = jedna ekipa, prva kolona = ime i prezime igrača.
+const LEAGUES = [
+  { id: "it",   label: "IT LIGA",        url: "https://docs.google.com/spreadsheets/d/1D_UQU68LGi-cge2TMulChmRFIipR6ba-7y54a0-2m_A/edit?usp=sharing" },
+  { id: "mini", label: "MINIFUDBAL NIŠ", url: "https://docs.google.com/spreadsheets/d/17kBznsiorbOFmJ7kwuHOGj7c4LOIL2rXXPbfsWnhIYE/edit?usp=drive_link" },
+];
 
-function saveLigaToStorage(base64, teams) {
+// ── Pamćenje u browseru: izabrana liga + keš ekipa po ligi ─────────────────────
+const LEAGUE_KEY = "futsal-tracker-league-v1";
+const leagueCacheKey = (id) => `futsal-tracker-league-teams-v1:${id}`;
+
+function loadSelectedLeague() {
   try {
-    localStorage.setItem(LIGA_STORAGE_KEY, JSON.stringify({ base64, teams }));
-  } catch (e) {
-    console.warn("Could not save liga file to localStorage", e);
-  }
+    const id = localStorage.getItem(LEAGUE_KEY) || "";
+    return LEAGUES.some((l) => l.id === id) ? id : "";
+  } catch { return ""; }
 }
 
-function loadLigaFromStorage() {
+function saveSelectedLeague(id) {
+  try { localStorage.setItem(LEAGUE_KEY, id); } catch {}
+}
+
+function loadLeagueCache(id) {
   try {
-    const raw = localStorage.getItem(LIGA_STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch (e) {
-    console.warn("Could not load liga file from localStorage", e);
-    return null;
-  }
+    const raw = localStorage.getItem(leagueCacheKey(id));
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+}
+
+function saveLeagueCache(id, teams) {
+  try { localStorage.setItem(leagueCacheKey(id), JSON.stringify(teams)); } catch {}
 }
 
 // Parses every sheet in workbook → { teamName: [{ id, num, name }, ...] }
@@ -643,7 +655,7 @@ function ExcelImportButton({ onImport, align = "left" }) {
 }
 
 
-// ── Team Selector (Google Drive link + dropdown) ──────────────────────────────
+// ── Team Selector (dropdown ekipa izabrane lige) ──────────────────────────────
 // Konvertuje bilo koji Google Drive/Sheets link u direktan download link
 function driveShareToDirect(url) {
   // Google Sheets link — export kao xlsx
@@ -660,138 +672,95 @@ function driveShareToDirect(url) {
   return null;
 }
 
-function TeamSelector({ side, teams, selectedTeam, onSelectTeam, onLigaUpload, ligaLoaded, align = "left" }) {
-  const [driveLink, setDriveLink] = useState(() => {
-    try { return localStorage.getItem("futsal-drive-link") || ""; } catch { return ""; }
-  });
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [showInput, setShowInput] = useState(false);
+// Vraća listu adresa koje vredi probati redom za jedan link.
+// Excel fajl otvoren u Google tabelama (u linku piše rtpof=true) ne može da se izveze
+// kao tabela, pa za njega prvo probamo direktno preuzimanje fajla.
+function leagueFetchUrls(url) {
+  const sheets = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  const file = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+  const id = sheets?.[1] || file?.[1];
+  if (!id) {
+    const direct = driveShareToDirect(url);
+    return direct ? [direct] : [];
+  }
+  const exportUrl = `https://docs.google.com/spreadsheets/d/${id}/export?format=xlsx`;
+  const downloadUrl = `https://drive.google.com/uc?export=download&id=${id}`;
+  const isOfficeFile = /[?&]rtpof=true/.test(url) || !!file;
+  return isOfficeFile ? [downloadUrl, exportUrl] : [exportUrl, downloadUrl];
+}
+
+// Učitava sve ekipe iz fajla jedne lige → { imeEkipe: [{ id, num, name }, ...] }
+async function fetchLeagueTeams(league) {
+  const urls = leagueFetchUrls(league.url || "");
+  if (urls.length === 0) throw new Error(`Link za ${league.label} nije podešen.`);
+
+  let lastError = null;
+  for (const u of urls) {
+    try {
+      const res = await fetch(u);
+      if (!res.ok) throw new Error(`Fajl za ${league.label} nije moguće učitati.`);
+      // Ako Google vrati web stranicu (prijava, upozorenje) umesto fajla, to nije Excel
+      const type = res.headers.get("content-type") || "";
+      if (type.includes("text/html")) {
+        throw new Error(`Fajl za ${league.label} nije javno dostupan.`);
+      }
+      const buf = await res.arrayBuffer();
+      const teams = await parseWorkbook(new Blob([buf]));
+      if (Object.keys(teams).length === 0) {
+        throw new Error(`Nisu pronađene ekipe u fajlu za ${league.label}.`);
+      }
+      return teams;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError || new Error(`Fajl za ${league.label} nije moguće učitati.`);
+}
+
+function TeamSelector({ teams, selectedTeam, onSelectTeam, leagueSelected, loading, align = "left" }) {
   const teamNames = Object.keys(teams || {});
   const isLeft = align === "left";
 
-  const handleLoad = async () => {
-    if (!driveLink.trim()) { setError("Unesi Google Drive link."); return; }
-    const directUrl = driveShareToDirect(driveLink.trim());
-    if (!directUrl) { setError("Neispravan Google Drive link."); return; }
+  if (!leagueSelected) {
+    return (
+      <p className="text-[10px] text-gray-600 italic">
+        Izaberi ligu iznad da bi birao ekipu
+      </p>
+    );
+  }
 
-    setBusy(true);
-    setError("");
-    try {
-      const res = await fetch(directUrl);
-      if (!res.ok) throw new Error("Nije moguće učitati fajl.");
-      const arrayBuffer = await res.arrayBuffer();
-      const XLSX = await getXLSX();
-      const workbook = XLSX.read(arrayBuffer, { type: "array" });
-      const parsedTeams = {};
-      for (const sheetName of workbook.SheetNames) {
-        const sheet = workbook.Sheets[sheetName];
-        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
-        const players = rows
-          .map((row) => ({
-            num: "",
-            name: row[0] !== undefined ? String(row[0]).trim() : "",
-          }))
-          .filter((p) => p.name !== "")
-          .map((p) => ({ id: crypto.randomUUID(), num: p.num, name: p.name }));
-        if (players.length > 0) parsedTeams[sheetName] = players;
-      }
-      if (Object.keys(parsedTeams).length === 0) throw new Error("Nisu pronađeni timovi u fajlu.");
-      try { localStorage.setItem("futsal-drive-link", driveLink.trim()); } catch {}
-      saveLigaToStorage(null, parsedTeams);
-      onLigaUpload(parsedTeams);
-      setShowInput(false);
-    } catch (err) {
-      setError(err.message || "Greška pri učitavanju.");
-    } finally {
-      setBusy(false);
-    }
-  };
+  if (teamNames.length === 0) {
+    return (
+      <p className="text-[10px] text-gray-600 italic">
+        {loading ? "Učitavanje ekipa…" : "Nema učitanih ekipa"}
+      </p>
+    );
+  }
 
   return (
     <div className={`flex flex-col gap-1.5 ${isLeft ? "items-start" : "items-end"}`}>
-
-      {/* Dugme za prikaz input polja */}
-      <button
-        onClick={() => setShowInput((v) => !v)}
-        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all active:scale-95 ${
-          ligaLoaded
-            ? "bg-gray-700/50 hover:bg-gray-600/50 border border-gray-600 text-gray-400"
-            : "bg-yellow-500/20 hover:bg-yellow-400/30 border border-yellow-500/50 text-yellow-300 animate-pulse"
-        }`}
+      <select
+        value={selectedTeam}
+        onChange={(e) => onSelectTeam(e.target.value, teams[e.target.value] || [])}
+        className={`w-full bg-gray-800 border-2 ${
+          selectedTeam ? "border-yellow-500/60" : "border-yellow-500 animate-pulse"
+        } text-white font-black text-sm uppercase tracking-wider rounded-xl px-3 py-2 focus:outline-none focus:border-yellow-400 transition-all cursor-pointer`}
+        style={{ textAlignLast: isLeft ? "left" : "right" }}
       >
-        <span>📋</span>
-        <span>{ligaLoaded ? "Zameni ekipe (Drive)" : "Učitaj ekipe (Excel)"}</span>
-      </button>
-
-      {/* Google Drive link input */}
-      {showInput && (
-        <div className="w-full flex flex-col gap-1.5">
-          <input
-            type="text"
-            value={driveLink}
-            onChange={(e) => setDriveLink(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleLoad()}
-            placeholder="Google Drive link (javni)..."
-            className="w-full bg-gray-800 border border-gray-700 text-white text-xs rounded-lg px-2.5 py-2 focus:outline-none focus:border-yellow-500 placeholder-gray-600"
-          />
-          <div className={`flex gap-1.5 ${isLeft ? "" : "flex-row-reverse"}`}>
-            <button
-              onClick={handleLoad}
-              disabled={busy}
-              className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all active:scale-95 ${
-                busy ? "bg-gray-700 text-gray-500 cursor-not-allowed" : "bg-yellow-500 hover:bg-yellow-400 text-gray-900"
-              }`}
-            >
-              {busy ? "Učitavanje…" : "Učitaj"}
-            </button>
-            <button
-              onClick={() => setShowInput(false)}
-              className="px-3 py-1.5 rounded-lg text-[10px] bg-gray-700 hover:bg-gray-600 text-gray-300 transition-all"
-            >
-              Otkaži
-            </button>
-          </div>
-          {error && <span className="text-[10px] text-red-400">{error}</span>}
-          <p className="text-[9px] text-gray-600 leading-relaxed">
-            Fajl mora biti javno dostupan na Drive-u.<br />
-            Drive → Podeli → "Svi koji imaju link"
-          </p>
-        </div>
-      )}
-
-      {/* Dropdown za izbor tima */}
-      {teamNames.length > 0 && (
-        <select
-          value={selectedTeam}
-          onChange={(e) => onSelectTeam(e.target.value, teams[e.target.value] || [])}
-          className={`w-full bg-gray-800 border-2 ${
-            selectedTeam ? "border-yellow-500/60" : "border-yellow-500 animate-pulse"
-          } text-white font-black text-sm uppercase tracking-wider rounded-xl px-3 py-2 focus:outline-none focus:border-yellow-400 transition-all cursor-pointer`}
-          style={{ textAlignLast: isLeft ? "left" : "right" }}
-        >
-          <option value="">— Izaberi tim —</option>
-          {teamNames.map((name) => (
-            <option key={name} value={name}>{name}</option>
-          ))}
-        </select>
-      )}
-
-      {!ligaLoaded && !showInput && (
-        <p className="text-[10px] text-gray-600 italic">
-          Postavi Google Drive link da biraš timove
-        </p>
-      )}
+        <option value="">— Izaberi tim —</option>
+        {teamNames.map((name) => (
+          <option key={name} value={name}>{name}</option>
+        ))}
+      </select>
     </div>
   );
 }
-
 
 function TeamPanel({
   side, teamName, onTeamNameChange, players, onPlayerUpdate,
   onGoal, onCard, fouls, onFoulChange, foulsH1, goals, cards,
   onEditGoal, onDeleteGoal, onEditCard, onDeleteCard, onImportRoster,
-  ligaTeams, onLigaUpload, ligaLoaded, selectedTeam, onSelectTeam,
+  ligaTeams, leagueSelected, leagueLoading, selectedTeam, onSelectTeam,
   timeouts, onTimeout, onDeleteTimeout, half,
 }) {
   const isLeft = side === "home";
@@ -800,14 +769,13 @@ function TeamPanel({
 
   return (
     <div className="flex flex-col gap-3 h-full">
-      {/* Team Selector from Liga Excel */}
+      {/* Izbor ekipe iz izabrane lige */}
       <TeamSelector
-        side={side}
         teams={ligaTeams}
         selectedTeam={selectedTeam}
         onSelectTeam={onSelectTeam}
-        onLigaUpload={onLigaUpload}
-        ligaLoaded={ligaLoaded}
+        leagueSelected={leagueSelected}
+        loading={leagueLoading}
         align={isLeft ? "left" : "right"}
       />
 
@@ -1437,7 +1405,7 @@ function MatchCloseModal({ homeTeam, awayTeam, homeGoals, awayGoals,
         {/* Header */}
         <div className="bg-gray-800 rounded-t-2xl px-6 py-4 border-b border-gray-700">
           <h2 className="text-white font-black text-base uppercase tracking-[0.15em] text-center">
-            Zaključi meč
+            Sačuvaj meč
           </h2>
           <p className="text-yellow-400 text-xs text-center font-semibold mt-1">{matchLabel}</p>
         </div>
@@ -1459,7 +1427,7 @@ function MatchCloseModal({ homeTeam, awayTeam, homeGoals, awayGoals,
           {!sent ? (
             <>
               <p className="text-gray-400 text-xs text-center leading-relaxed">
-                Klikom na <span className="text-yellow-400 font-bold">"Zaključi i pošalji"</span> meč se čuva u bazu i možeš ga pregledati u sekciji <span className="text-yellow-400 font-bold">Istorija</span>.
+                Klikom na <span className="text-yellow-400 font-bold">"Sačuvaj"</span> meč se čuva u bazu i možeš ga pregledati u sekciji <span className="text-yellow-400 font-bold">Istorija</span>.
               </p>
               {error && <p className="text-red-400 text-xs text-center">{error}</p>}
               <div className="flex gap-3">
@@ -1477,7 +1445,7 @@ function MatchCloseModal({ homeTeam, awayTeam, homeGoals, awayGoals,
                     : "bg-yellow-500 hover:bg-yellow-400 text-gray-900"
                   }`}
                 >
-                  {sending ? "Slanje…" : "Zaključi i pošalji ✓"}
+                  {sending ? "Čuvanje…" : "Sačuvaj ✓"}
                 </button>
               </div>
             </>
@@ -1486,7 +1454,7 @@ function MatchCloseModal({ homeTeam, awayTeam, homeGoals, awayGoals,
               {/* QR kod za potvrdu */}
               <div className="flex flex-col items-center gap-3">
                 <div className="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center text-white font-black text-sm">✓</div>
-                <p className="text-emerald-400 text-sm font-bold text-center">Meč uspešno poslat u bazu!</p>
+                <p className="text-emerald-400 text-sm font-bold text-center">Meč sačuvan u bazi!</p>
                 <p className="text-gray-400 text-xs text-center leading-relaxed">
                   Kapiten protivničke ekipe treba da skenira QR kod i potvrdi rezultat:
                 </p>
@@ -1518,15 +1486,14 @@ function HelpPage({ onBack }) {
   const sections = [
     {
       icon: "📋",
-      title: "Učitavanje ekipa",
+      title: "Izbor lige i ekipa",
       items: [
-        "Ekipe se učitavaju iz Excel fajla (.xlsx) postavljenog na Google Drive.",
-        "Fajl mora biti javno dostupan — Google Drive → Podeli → 'Svi koji imaju link mogu da vide'.",
-        "Svaki sheet u Excel fajlu predstavlja jednu ekipu, a naziv sheeta je naziv ekipe.",
-        "Svaki red u sheetu je jedan igrač — prva kolona je ime i prezime igrača.",
-        "Klikni dugme 'Učitaj ekipe (Excel)' na vrhu panela ekipe, nalepi Google Drive link i klikni Učitaj.",
-        "Nakon učitavanja, iz padajućeg menija izaberi ekipu za Home i Away.",
-        "Ekipa se pamti u browseru — sledeći put nije potrebno ponovo učitavati fajl.",
+        "Iznad ekipa izaberi ligu: 'IT LIGA' ili 'MINIFUDBAL NIŠ'. Može biti aktivna samo jedna, a izbor važi za obe ekipe.",
+        "Čim izabereš ligu, u padajućim menijima se pojavljuju ekipe te lige.",
+        "Iz padajućeg menija izaberi ekipu za Home i za Away — igrači se učitavaju automatski.",
+        "Ako je spisak ekipa u Excel fajlu izmenjen, klikni dugme ↻ pored lige da ga osvežiš.",
+        "Izabrana liga se pamti u browseru, pa se pri sledećem otvaranju ekipe učitaju same.",
+        "Ako nema interneta, prikazuju se poslednje sačuvane ekipe izabrane lige.",
       ],
     },
     {
@@ -1550,6 +1517,7 @@ function HelpPage({ onBack }) {
         "Dugme '↺ Reset' vraća sat na početno vreme poluvremena.",
         "Sat nastavlja da radi i kada se ekran telefona zaključa.",
         "Na početku drugog poluvremena klikni '→ Počni 2. poluvreme' — sat se resetuje, fauli se resetuju.",
+        "Ako si slučajno kliknuo 2. poluvreme, klikni '↩ Vrati u 1. poluvreme' — vraća se sat i fauli tačno kako su bili. Dugme je dostupno dok u 2. poluvremenu ne zabeležiš gol, karton ili timeout.",
       ],
     },
     {
@@ -1609,12 +1577,12 @@ function HelpPage({ onBack }) {
     },
     {
       icon: "✓",
-      title: "Zaključivanje meča",
+      title: "Čuvanje meča",
       items: [
-        "Dugme 'Zaključi meč' nalazi se u zaglavlju (desktop) i na dnu (mobilni).",
+        "Dugme 'Sačuvaj meč' nalazi se u zaglavlju (desktop) i na dnu (mobilni).",
         "Dostupno je samo kada su unesena oba naziva timova.",
         "Klikom se meč šalje u bazu podataka i možeš ga pregledati u sekciji Istorija.",
-        "Nakon zaključivanja, dugme postaje zeleno 'Meč zaključan' — meč je sačuvan.",
+        "Nakon čuvanja, dugme postaje zeleno 'Meč sačuvan u bazi'.",
       ],
     },
     {
@@ -1790,7 +1758,7 @@ function HistoryPage({ onBack }) {
                     ? "bg-emerald-900/40 text-emerald-400 border border-emerald-700/40"
                     : "bg-gray-800 text-gray-500"
                 }`}>
-                  {m.status === "zakljucan" ? "✓ Zaključan" : m.status}
+                  {m.status === "zakljucan" ? "✓ Sačuvan" : m.status}
                 </span>
                 {m.mvp && (
                   <span className="text-[10px] text-yellow-400">⭐ {m.mvp}</span>
@@ -1881,19 +1849,56 @@ export default function FutsalTracker() {
   const [homeFoulsH1, setHomeFoulsH1] = useState(s?.homeFoulsH1 ?? null);
   const [awayFoulsH1, setAwayFoulsH1] = useState(s?.awayFoulsH1 ?? null);
   // Timeout: { h1: null|{clockMin, elapsedSecs}, h2: null|{clockMin, elapsedSecs} }
+  // Snimak stanja u trenutku klika na "Počni 2. poluvreme" — za povratak jednim klikom
+  const [halfSnapshot, setHalfSnapshot] = useState(s?.halfSnapshot ?? null);
   const [homeTimeouts, setHomeTimeouts] = useState(s?.homeTimeouts ?? { h1: null, h2: null });
   const [awayTimeouts, setAwayTimeouts] = useState(s?.awayTimeouts ?? { h1: null, h2: null });
   const [matchMvp, setMatchMvp] = useState(s?.matchMvp ?? "");
   const [restoredMsg, setRestoredMsg] = useState(s ? "Meč učitan iz memorije" : "");
 
-  // Liga Excel state — shared between both team panels
+  // Liga — izbor važi za obe ekipe, samo jedna liga može biti aktivna
+  const [selectedLeague, setSelectedLeague] = useState(loadSelectedLeague);
   const [ligaTeams, setLigaTeams] = useState(() => {
-    const liga = loadLigaFromStorage();
-    return liga?.teams ?? {};
+    const id = loadSelectedLeague();
+    return id ? loadLeagueCache(id) : {};
   });
+  const [leagueLoading, setLeagueLoading] = useState(false);
+  const [leagueError, setLeagueError] = useState("");
+  const [leagueRefreshTick, setLeagueRefreshTick] = useState(0);
   const [homeSelectedTeam, setHomeSelectedTeam] = useState(s?.homeTeam ?? "");
   const [awaySelectedTeam, setAwaySelectedTeam] = useState(s?.awayTeam ?? "");
-  const ligaLoaded = Object.keys(ligaTeams).length > 0;
+
+  // Učitaj ekipe izabrane lige (pri izboru lige, pri otvaranju app-a i na "Osveži")
+  useEffect(() => {
+    const league = LEAGUES.find((l) => l.id === selectedLeague);
+    if (!league) return;
+    let cancelled = false;
+    setLeagueLoading(true);
+    setLeagueError("");
+    fetchLeagueTeams(league)
+      .then((teams) => {
+        if (cancelled) return;
+        setLigaTeams(teams);
+        saveLeagueCache(league.id, teams);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setLeagueError(err.message || "Greška pri učitavanju ekipa.");
+      })
+      .finally(() => {
+        if (!cancelled) setLeagueLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [selectedLeague, leagueRefreshTick]);
+
+  const chooseLeague = (id) => {
+    if (id === selectedLeague) return;
+    saveSelectedLeague(id);
+    setSelectedLeague(id);
+    setLigaTeams(loadLeagueCache(id)); // odmah prikaži sačuvane ekipe nove lige (ili prazno)
+    setHomeSelectedTeam("");
+    setAwaySelectedTeam("");
+  };
 
   const fileInputRef = useRef(null);
 
@@ -1910,11 +1915,11 @@ export default function FutsalTracker() {
     saveMatchToStorage({
       secs, half, halfDuration, homeTeam, awayTeam, homePlayers, awayPlayers,
       homeGoals, awayGoals, homeCards, awayCards, homeFouls, awayFouls,
-      homeFoulsH1, awayFoulsH1, homeTimeouts, awayTimeouts, matchMvp, matchLocked, matchDbId,
+      homeFoulsH1, awayFoulsH1, homeTimeouts, awayTimeouts, halfSnapshot, matchMvp, matchLocked, matchDbId,
     });
   }, [secs, half, halfDuration, homeTeam, awayTeam, homePlayers, awayPlayers,
       homeGoals, awayGoals, homeCards, awayCards, homeFouls, awayFouls,
-      homeFoulsH1, awayFoulsH1, homeTimeouts, awayTimeouts, matchMvp, matchLocked, matchDbId]);
+      homeFoulsH1, awayFoulsH1, homeTimeouts, awayTimeouts, halfSnapshot, matchMvp, matchLocked, matchDbId]);
 
   // Hide "restored" message after a few seconds
   useEffect(() => {
@@ -2068,6 +2073,40 @@ export default function FutsalTracker() {
     else setAwayTimeouts((t) => ({ ...t, [halfKey]: null }));
   };
 
+  // Počni 2. poluvreme — pamtimo stanje pre prelaska da bi moglo da se vrati
+  const startSecondHalf = () => {
+    if (half !== 1) return;
+    setHalfSnapshot({ secs, homeFouls, awayFouls });
+    setHomeFoulsH1(homeFouls);
+    setAwayFoulsH1(awayFouls);
+    setHomeFouls(0);
+    setAwayFouls(0);
+    setRunning(false);
+    setSecs(halfDuration);
+    setHalf(2);
+  };
+
+  // Povratak u 1. poluvreme — vraća sat i faule na stanje iz trenutka klika
+  const undoSecondHalf = () => {
+    if (half !== 2 || !halfSnapshot) return;
+    setRunning(false);
+    setSecs(halfSnapshot.secs);
+    setHomeFouls(halfSnapshot.homeFouls);
+    setAwayFouls(halfSnapshot.awayFouls);
+    setHomeFoulsH1(null);
+    setAwayFoulsH1(null);
+    setHalfSnapshot(null);
+    setHalf(1);
+  };
+
+  // Povratak je moguć samo dok u 2. poluvremenu nije ništa zabeleženo
+  // (inače bi golovi/kartoni/timeout iz 2. poluvremena ostali bez poluvremena)
+  const hasSecondHalfEvents =
+    homeGoals.some((g) => g.half === 2) || awayGoals.some((g) => g.half === 2) ||
+    homeCards.some((c) => c.half === 2) || awayCards.some((c) => c.half === 2) ||
+    !!homeTimeouts.h2 || !!awayTimeouts.h2;
+  const canUndoSecondHalf = half === 2 && !!halfSnapshot && !hasSecondHalfEvents;
+
   // Goal edit / delete
   const editGoal = (side, idx, updated) => {
     if (side === "home") setHomeGoals((g) => g.map((item, i) => i === idx ? updated : item));
@@ -2140,6 +2179,7 @@ export default function FutsalTracker() {
     setAwayFoulsH1(null);
     setHomeTimeouts({ h1: null, h2: null });
     setAwayTimeouts({ h1: null, h2: null });
+    setHalfSnapshot(null);
     setMatchMvp("");
     setPdfMsg("");
     setShowNewMatchConfirm(false);
@@ -2149,11 +2189,6 @@ export default function FutsalTracker() {
     setHomeSelectedTeam("");
     setAwaySelectedTeam("");
     clearMatchFromStorage();
-  };
-
-  // Liga Excel upload — shared, saves to localStorage
-  const handleLigaUpload = (parsedTeams) => {
-    setLigaTeams(parsedTeams);
   };
 
   // When a team is selected from dropdown — set name + load players
@@ -2308,12 +2343,12 @@ export default function FutsalTracker() {
               }`}
             >
               <span>✓</span>
-              <span>Zaključi meč</span>
+              <span>Sačuvaj meč</span>
             </button>
           ) : (
             <span className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold bg-emerald-900/40 border border-emerald-700/50 text-emerald-400">
               <span>✓</span>
-              <span>Meč zaključan</span>
+              <span>Meč sačuvan u bazi</span>
             </span>
           )}
           <button
@@ -2380,17 +2415,7 @@ export default function FutsalTracker() {
           {/* Poluvreme dugme */}
           <div className="flex items-center gap-3 mt-3">
             <button
-              onClick={() => {
-                if (half === 1) {
-                  setHomeFoulsH1(homeFouls);
-                  setAwayFoulsH1(awayFouls);
-                  setHomeFouls(0);
-                  setAwayFouls(0);
-                  setRunning(false);
-                  setSecs(halfDuration);
-                  setHalf(2);
-                }
-              }}
+              onClick={startSecondHalf}
               disabled={half === 2}
               className={`px-5 py-1.5 rounded-lg text-xs font-bold tracking-widest transition-all active:scale-95 ${
                 half === 2
@@ -2400,6 +2425,15 @@ export default function FutsalTracker() {
             >
               {half === 2 ? "2. Poluvreme" : "→ Počni 2. poluvreme"}
             </button>
+            {canUndoSecondHalf && (
+              <button
+                onClick={undoSecondHalf}
+                className="px-4 py-1.5 rounded-lg text-xs font-bold tracking-widest transition-all active:scale-95 bg-orange-700 hover:bg-orange-600 text-white"
+                title="Vrati u 1. poluvreme sa vremenom i faulovima iz trenutka klika"
+              >
+                ↩ Vrati u 1. poluvreme
+              </button>
+            )}
           </div>
 
           {/* Live score */}
@@ -2431,6 +2465,52 @@ export default function FutsalTracker() {
           </div>
         </div>
 
+        {/* Izbor lige — samo jedna može biti aktivna, važi za obe ekipe */}
+        <div className="lg:col-span-3 bg-gray-900/60 border-b border-gray-800 px-4 py-3 flex flex-col items-center gap-2">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-gray-500">Liga</p>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {LEAGUES.map((lg) => {
+              const active = selectedLeague === lg.id;
+              return (
+                <button
+                  key={lg.id}
+                  onClick={() => chooseLeague(lg.id)}
+                  className={`px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 ${
+                    active
+                      ? "bg-yellow-500 text-gray-900 border-2 border-yellow-400"
+                      : "bg-gray-800 hover:bg-gray-700 text-gray-300 border-2 border-gray-700"
+                  } ${!selectedLeague ? "animate-pulse" : ""}`}
+                >
+                  {lg.label}
+                </button>
+              );
+            })}
+            {selectedLeague && (
+              <button
+                onClick={() => setLeagueRefreshTick((t) => t + 1)}
+                disabled={leagueLoading}
+                title="Osveži spisak ekipa"
+                className={`px-3 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 ${
+                  leagueLoading
+                    ? "bg-gray-800 text-gray-600 cursor-not-allowed"
+                    : "bg-gray-800 hover:bg-gray-700 text-gray-300"
+                }`}
+              >
+                {leagueLoading ? "…" : "↻"}
+              </button>
+            )}
+          </div>
+          {leagueLoading && (
+            <p className="text-[10px] text-gray-500">Učitavanje ekipa…</p>
+          )}
+          {leagueError && (
+            <p className="text-[10px] text-red-400 text-center">
+              {leagueError}
+              {Object.keys(ligaTeams).length > 0 && " Prikazane su ranije sačuvane ekipe."}
+            </p>
+          )}
+        </div>
+
         {/* Home */}
         <div className="p-4 lg:p-5 border-b lg:border-b-0 lg:border-r border-gray-800">
           <TeamPanel
@@ -2456,8 +2536,8 @@ export default function FutsalTracker() {
             onDeleteCard={(idx) => deleteCard("home", idx)}
             onImportRoster={(players) => handleImportRoster("home", players)}
             ligaTeams={ligaTeams}
-            onLigaUpload={handleLigaUpload}
-            ligaLoaded={ligaLoaded}
+            leagueSelected={!!selectedLeague}
+            leagueLoading={leagueLoading}
             selectedTeam={homeSelectedTeam}
             onSelectTeam={(name, players) => handleSelectTeam("home", name, players)}
           />
@@ -2598,8 +2678,8 @@ export default function FutsalTracker() {
             onDeleteCard={(idx) => deleteCard("away", idx)}
             onImportRoster={(players) => handleImportRoster("away", players)}
             ligaTeams={ligaTeams}
-            onLigaUpload={handleLigaUpload}
-            ligaLoaded={ligaLoaded}
+            leagueSelected={!!selectedLeague}
+            leagueLoading={leagueLoading}
             selectedTeam={awaySelectedTeam}
             onSelectTeam={(name, players) => handleSelectTeam("away", name, players)}
           />
@@ -2635,11 +2715,11 @@ export default function FutsalTracker() {
                   : "bg-emerald-700 hover:bg-emerald-600 text-white"
               }`}
             >
-              ✓ Zaključi meč
+              ✓ Sačuvaj meč
             </button>
           ) : (
             <span className="py-2.5 rounded-xl text-xs font-bold bg-emerald-900/40 border border-emerald-700/50 text-emerald-400 text-center">
-              ✓ Zaključan
+              ✓ Sačuvan u bazi
             </span>
           )}
         </div>
