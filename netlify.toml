@@ -1,0 +1,5 @@
+[[redirects]]
+  from = "https://itligalog.netlify.app/*"
+  to = "https://zapisnik.itliganis.rs/:splat"
+  status = 301
+  force = true
