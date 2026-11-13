@@ -1110,7 +1110,10 @@ async function generatePDF({ homeTeam, awayTeam, homePlayers, awayPlayers,
 
   const playerRows = (x, w, players, goals, cards, startY) => {
     let y = startY;
-    const active = players.filter(p => p.num || p.name);
+    // Prvo svi koji su igrali, pa oni koji nisu — redosled unutar grupe ostaje isti
+    const active = players
+      .filter(p => p.num || p.name)
+      .sort((a, b) => (b.played ? 1 : 0) - (a.played ? 1 : 0));
     if (!active.length) {
       doc.setFont("helvetica", "italic");
       doc.setFontSize(7);
